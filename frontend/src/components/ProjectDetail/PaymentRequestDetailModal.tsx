@@ -1,0 +1,952 @@
+import { useEffect, useState } from 'react';
+import {
+  Button,
+  DatePicker,
+  Descriptions,
+  Divider,
+  Form,
+  Grid,
+  Input,
+  InputNumber,
+  List,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Tag,
+  Tooltip,
+  Typography,
+  Upload,
+  message,
+} from 'antd';
+import type { UploadFile } from 'antd';
+import type { RcFile } from 'antd/es/upload';
+import { isFileSizeValid } from '../../utils/file';
+import {
+  CopyOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  PaperClipOutlined,
+  PlusOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  deleteAttachment,
+  deletePaymentRequest,
+  getPaymentRequest,
+  updatePaymentRequest,
+} from '../../api/paymentRequests';
+import {
+  addPayment,
+  confirmPayment,
+  deletePayment,
+  rejectPayment,
+} from '../../api/payments';
+import { getFileDownloadUrl } from '../../api/files';
+import {
+  addComment,
+  deleteComment,
+  listComments,
+} from '../../api/paymentRequestComments';
+import { useAuth } from '../../contexts/AuthContext';
+import type { Currency, PaymentRequestPriority, PaymentStatus } from '../../types';
+import { fmt } from '../../utils/format';
+import dayjs, { type Dayjs } from 'dayjs';
+
+/** Извлекает читаемое сообщение из ошибки axios / FastAPI (string или array detail). */
+function _extractErrorMessage(err: unknown, fallback: string): string {
+  const e = err as { response?: { data?: { detail?: unknown } } };
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as { msg?: string };
+    return first.msg ?? fallback;
+  }
+  return fallback;
+}
+
+const PRIORITY_LABEL: Record<PaymentRequestPriority, string> = {
+  urgent: 'Срочно',
+  normal: 'Обычно',
+  deferred: 'Отложено',
+};
+const PRIORITY_COLOR: Record<PaymentRequestPriority, string> = {
+  urgent: 'red',
+  normal: 'blue',
+  deferred: 'default',
+};
+
+const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  pending: 'Ожидает подтверждения',
+  confirmed: 'Подтверждён',
+  rejected: 'Отклонён',
+};
+const PAYMENT_STATUS_COLOR: Record<PaymentStatus, string> = {
+  pending: 'orange',
+  confirmed: 'green',
+  rejected: 'red',
+};
+
+const { Text, Paragraph } = Typography;
+const { useBreakpoint } = Grid;
+
+interface Props {
+  open: boolean;
+  projectId: number;
+  reqId: number;
+  onClose: () => void;
+  onChanged: () => void;
+}
+
+export default function PaymentRequestDetailModal({
+  open,
+  projectId,
+  reqId,
+  onClose,
+  onChanged,
+}: Props) {
+  const { isAdmin, user } = useAuth();
+  const queryClient = useQueryClient();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  const [editMode, setEditMode] = useState(false);
+  const [editForm] = Form.useForm();
+  const [editLoading, setEditLoading] = useState(false);
+  const [deletingAtt, setDeletingAtt] = useState<number | null>(null);
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [addPaymentLoading, setAddPaymentLoading] = useState(false);
+  const [addPaymentForm] = Form.useForm();
+  const [paymentFile, setPaymentFile] = useState<UploadFile[]>([]);
+  const [deletingPay, setDeletingPay] = useState<number | null>(null);
+  const [confirmingPay, setConfirmingPay] = useState<number | null>(null);
+  const [rejectingPay, setRejectingPay] = useState<number | null>(null);
+  const [rejectModalPayId, setRejectModalPayId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [commentLoading, setCommentLoading] = useState(false);
+  const [deletingComment, setDeletingComment] = useState<number | null>(null);
+
+  const { data: req, isLoading } = useQuery({
+    queryKey: ['payment-request-detail', reqId],
+    queryFn: () => getPaymentRequest(projectId, reqId),
+    enabled: open,
+  });
+
+  const { data: comments = [] } = useQuery({
+    queryKey: ['payment-request-comments', reqId],
+    queryFn: () => listComments(reqId),
+    enabled: open,
+  });
+
+  useEffect(() => {
+    if (editMode && req) {
+      editForm.setFieldsValue({
+        total_amount: parseFloat(req.total_amount),
+        currency: req.currency,
+        requisites: req.requisites ?? '',
+        payment_details: req.payment_details ?? '',
+        priority: req.priority,
+        due_date: req.due_date ? dayjs(req.due_date) : null,
+      });
+    }
+  }, [editMode, req, editForm]);
+
+  const isCompleted = req ? parseFloat(req.remaining_amount) <= 0 : false;
+
+  // ── Скачивание файла ────────────────────────────────────────────────────────
+
+  const handleDownloadFile = async (fileKey: string) => {
+    try {
+      const url = await getFileDownloadUrl(fileKey);
+      window.open(url, '_blank');
+    } catch {
+      message.error('Не удалось получить ссылку для скачивания');
+    }
+  };
+
+  // ── Копирование информации ──────────────────────────────────────────────────
+
+  const handleCopyInfo = () => {
+    if (!req) return;
+    const itemLines = req.items
+      .map((i) => `  ${i.project_item_name}: ${fmt(i.amount, req.currency)}`)
+      .join('\n');
+    const lines: string[] = [
+      `Заявка на оплату #${req.id}`,
+      '',
+      'Позиции:',
+      itemLines,
+      '',
+      `Итого: ${fmt(req.total_amount, req.currency)}`,
+    ];
+    if (req.requisites) lines.push(`Реквизиты: ${req.requisites}`);
+    if (req.payment_details) lines.push(`Детали платежа: ${req.payment_details}`);
+
+    navigator.clipboard.writeText(lines.join('\n')).then(() =>
+      message.success('Скопировано в буфер обмена'),
+    );
+  };
+
+  // ── Удаление заявки ─────────────────────────────────────────────────────────
+
+  const handleDelete = async () => {
+    try {
+      await deletePaymentRequest(projectId, reqId);
+      message.success('Заявка удалена');
+      onClose();
+      onChanged();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Ошибка удаления');
+    }
+  };
+
+  // ── Редактирование заявки ───────────────────────────────────────────────────
+
+  const handleEdit = async (values: {
+    total_amount: number;
+    currency: Currency;
+    requisites?: string;
+    payment_details?: string;
+    priority?: PaymentRequestPriority;
+    due_date?: Dayjs | null;
+  }) => {
+    setEditLoading(true);
+    try {
+      await updatePaymentRequest(projectId, reqId, {
+        total_amount: values.total_amount,
+        currency: values.currency,
+        requisites: values.requisites || null,
+        payment_details: values.payment_details || null,
+        priority: values.priority ?? 'normal',
+        due_date: values.due_date ? values.due_date.format('YYYY-MM-DD') : null,
+      });
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      onChanged();
+      setEditMode(false);
+      message.success('Заявка обновлена');
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка'));
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  // ── Комментарии ─────────────────────────────────────────────────────────────
+
+  const handleAddComment = async () => {
+    const text = commentText.trim();
+    if (!text) {
+      message.warning('Введите текст комментария');
+      return;
+    }
+    setCommentLoading(true);
+    try {
+      await addComment(reqId, text);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-comments', reqId] });
+      setCommentText('');
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка'));
+    } finally {
+      setCommentLoading(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    setDeletingComment(commentId);
+    try {
+      await deleteComment(reqId, commentId);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-comments', reqId] });
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка'));
+    } finally {
+      setDeletingComment(null);
+    }
+  };
+
+  // ── Удаление вложения ───────────────────────────────────────────────────────
+
+  const handleDeleteAttachment = async (attId: number) => {
+    setDeletingAtt(attId);
+    try {
+      await deleteAttachment(projectId, reqId, attId);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      message.success('Файл удалён');
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка'));
+    } finally {
+      setDeletingAtt(null);
+    }
+  };
+
+  // ── Добавление платежа ──────────────────────────────────────────────────────
+
+  const handleAddPayment = async (values: {
+    amount: number;
+    currency: Currency;
+    note?: string;
+  }) => {
+    setAddPaymentLoading(true);
+    try {
+      const file = paymentFile[0]?.originFileObj ?? null;
+      const created = await addPayment(reqId, {
+        amount: values.amount,
+        currency: values.currency,
+        note: values.note || null,
+        file,
+      });
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      onChanged();
+      addPaymentForm.resetFields();
+      setPaymentFile([]);
+      setAddPaymentOpen(false);
+      if (created.status === 'pending') {
+        message.success('Платёж отправлен на подтверждение');
+      } else {
+        message.success('Платёж добавлен');
+      }
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка при добавлении платежа'));
+    } finally {
+      setAddPaymentLoading(false);
+    }
+  };
+
+  // ── Удаление платежа ────────────────────────────────────────────────────────
+
+  const handleDeletePayment = async (payId: number) => {
+    setDeletingPay(payId);
+    try {
+      await deletePayment(reqId, payId);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      onChanged();
+      message.success('Платёж удалён');
+    } catch (err: unknown) {
+      message.error(_extractErrorMessage(err, 'Ошибка'));
+    } finally {
+      setDeletingPay(null);
+    }
+  };
+
+  // ── Подтверждение платежа (admin) ────────────────────────────────────────────
+
+  const handleConfirmPayment = async (payId: number) => {
+    setConfirmingPay(payId);
+    try {
+      await confirmPayment(reqId, payId);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      onChanged();
+      message.success('Платёж подтверждён');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Не удалось выполнить операцию');
+    } finally {
+      setConfirmingPay(null);
+    }
+  };
+
+  // ── Отклонение платежа (admin) ───────────────────────────────────────────────
+
+  const openRejectModal = (payId: number) => {
+    setRejectReason('');
+    setRejectModalPayId(payId);
+  };
+
+  const handleRejectPayment = async () => {
+    if (rejectModalPayId === null) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      message.warning('Укажите причину отклонения');
+      return;
+    }
+    setRejectingPay(rejectModalPayId);
+    try {
+      await rejectPayment(reqId, rejectModalPayId, reason);
+      queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
+      onChanged();
+      message.success('Платёж отклонён');
+      setRejectModalPayId(null);
+      setRejectReason('');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Не удалось выполнить операцию');
+    } finally {
+      setRejectingPay(null);
+    }
+  };
+
+  // ── Заголовок модального окна ───────────────────────────────────────────────
+
+  const actionButtons = (
+    <Space size="small" wrap>
+      <Tooltip title="Копировать">
+        <Button
+          size="small"
+          icon={<CopyOutlined />}
+          onClick={handleCopyInfo}
+        >
+          {isMobile ? null : 'Копировать'}
+        </Button>
+      </Tooltip>
+      {isAdmin && !editMode && (
+        <>
+          <Tooltip title="Редактировать">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditMode(true)}
+            >
+              {isMobile ? null : 'Редактировать'}
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title="Удалить заявку?"
+            description="Заявку без платежей можно удалить."
+            okText="Удалить"
+            okType="danger"
+            cancelText="Отмена"
+            onConfirm={handleDelete}
+          >
+            <Tooltip title="Удалить">
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                {isMobile ? null : 'Удалить'}
+              </Button>
+            </Tooltip>
+          </Popconfirm>
+        </>
+      )}
+    </Space>
+  );
+
+  const modalTitle = isMobile ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ whiteSpace: 'nowrap' }}>Заявка на оплату #{reqId}</span>
+        {isCompleted && <Tag color="success">Оплачено</Tag>}
+      </div>
+      {actionButtons}
+    </div>
+  ) : (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ whiteSpace: 'nowrap' }}>Заявка на оплату #{reqId}</span>
+      {isCompleted && <Tag color="success">Оплачено</Tag>}
+      <div style={{ marginLeft: 'auto' }}>{actionButtons}</div>
+    </div>
+  );
+
+  return (
+    <Modal
+      open={open}
+      onCancel={() => {
+        setEditMode(false);
+        setAddPaymentOpen(false);
+        addPaymentForm.resetFields();
+        setPaymentFile([]);
+        onClose();
+      }}
+      footer={null}
+      title={modalTitle}
+      width="min(640px, 94vw)"
+      destroyOnClose
+    >
+      {isLoading || !req ? (
+        <div style={{ textAlign: 'center', padding: 32 }}>Загрузка...</div>
+      ) : editMode ? (
+        // ── Режим редактирования ──────────────────────────────────────────────
+        <Form form={editForm} layout="vertical" onFinish={handleEdit}>
+          <Form.Item
+            name="total_amount"
+            label="Итоговая сумма"
+            rules={[{ required: true, message: 'Укажите сумму' }]}
+          >
+            <InputNumber min={0.01} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item
+            name="currency"
+            label="Валюта"
+            rules={[{ required: true, message: 'Выберите валюту' }]}
+          >
+            <Select
+              options={[
+                { value: 'CNY', label: 'CNY (юань)' },
+                { value: 'USD', label: 'USD (доллар)' },
+                { value: 'RUB', label: 'RUB (рубль)' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="priority" label="Приоритет">
+            <Select
+              options={[
+                { value: 'urgent', label: 'Срочно' },
+                { value: 'normal', label: 'Обычно' },
+                { value: 'deferred', label: 'Отложено' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="due_date" label="Дедлайн">
+            <DatePicker
+              style={{ width: '100%' }}
+              format="DD.MM.YYYY"
+              placeholder="Выберите дату"
+            />
+          </Form.Item>
+          <Form.Item name="requisites" label="Реквизиты">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="payment_details" label="Детали платежа">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={editLoading}>
+                Сохранить
+              </Button>
+              <Button onClick={() => setEditMode(false)}>Отмена</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      ) : (
+        // ── Режим просмотра ───────────────────────────────────────────────────
+        <>
+          {/* Основные данные */}
+          <Descriptions column={isMobile ? 1 : 2} size="small" bordered>
+            <Descriptions.Item label="Валюта">
+              <Tag>{req.currency}</Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Итого">
+              <Text strong style={{ whiteSpace: 'nowrap' }}>
+                {fmt(req.total_amount, req.currency)}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Оплачено">
+              <span style={{ whiteSpace: 'nowrap' }}>
+                {fmt(
+                  String(parseFloat(req.total_amount) - parseFloat(req.remaining_amount)),
+                  req.currency,
+                )}
+              </span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Остаток">
+              <Text
+                type={isCompleted ? 'success' : 'danger'}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {fmt(req.remaining_amount, req.currency)}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label="Приоритет">
+              <Tag color={PRIORITY_COLOR[req.priority]}>
+                {PRIORITY_LABEL[req.priority]}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Дедлайн">
+              {req.due_date ? (
+                <Text style={{ whiteSpace: 'nowrap' }}>
+                  {dayjs(req.due_date).format('DD.MM.YYYY')}
+                </Text>
+              ) : (
+                <Text type="secondary">—</Text>
+              )}
+            </Descriptions.Item>
+            {req.requisites && (
+              <Descriptions.Item label="Реквизиты" span={isMobile ? 1 : 2}>
+                <Paragraph copyable style={{ margin: 0 }}>
+                  {req.requisites}
+                </Paragraph>
+              </Descriptions.Item>
+            )}
+            {req.payment_details && (
+              <Descriptions.Item label="Детали платежа" span={isMobile ? 1 : 2}>
+                {req.payment_details}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+
+          {/* Позиции */}
+          <Divider style={{ margin: '12px 0' }}>Позиции</Divider>
+          <List
+            size="small"
+            dataSource={req.items}
+            renderItem={(item) => (
+              <List.Item>
+                <Text style={{ flex: 1, minWidth: 0 }} ellipsis>
+                  {item.project_item_name}
+                </Text>
+                <Text style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>
+                  {fmt(item.amount, req.currency)}
+                </Text>
+              </List.Item>
+            )}
+          />
+
+          {/* Вложения */}
+          {(req.attachments.length > 0 || isAdmin) && (
+            <>
+              <Divider style={{ margin: '12px 0' }}>
+                Вложения ({req.attachments.length}/3)
+              </Divider>
+              {req.attachments.length === 0 ? (
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  Нет вложений
+                </Text>
+              ) : (
+                <List
+                  size="small"
+                  dataSource={req.attachments}
+                  renderItem={(att) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="dl"
+                          type="text"
+                          size="small"
+                          icon={<DownloadOutlined />}
+                          onClick={() => handleDownloadFile(att.file_path)}
+                          title="Скачать"
+                        />,
+                        ...(isAdmin
+                          ? [
+                              <Popconfirm
+                                key="del"
+                                title="Удалить файл?"
+                                okText="Да"
+                                cancelText="Отмена"
+                                onConfirm={() => handleDeleteAttachment(att.id)}
+                              >
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  loading={deletingAtt === att.id}
+                                />
+                              </Popconfirm>,
+                            ]
+                          : []),
+                      ]}
+                    >
+                      <Space>
+                        <PaperClipOutlined />
+                        <Text>{att.file_name}</Text>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </>
+          )}
+
+          {/* Платежи */}
+          <Divider style={{ margin: '12px 0' }}>
+            Платежи ({req.payments.length})
+          </Divider>
+          {req.payments.length === 0 ? (
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              Нет платежей
+            </Text>
+          ) : (
+            <List
+              size="small"
+              dataSource={req.payments}
+              renderItem={(pay) => {
+                const isOwner = pay.created_by === user?.id;
+                // admin может удалять любой; client только свои и только не confirmed
+                const canDelete =
+                  isAdmin || (isOwner && pay.status !== 'confirmed');
+                const canConfirmReject = isAdmin && pay.status === 'pending';
+                return (
+                  <List.Item
+                    actions={[
+                      ...(pay.file_path
+                        ? [
+                            <Button
+                              key="dl"
+                              type="text"
+                              size="small"
+                              icon={<DownloadOutlined />}
+                              onClick={() => pay.file_path && handleDownloadFile(pay.file_path)}
+                              title="Скачать файл платежа"
+                            />,
+                          ]
+                        : []),
+                      ...(canConfirmReject
+                        ? [
+                            <Popconfirm
+                              key="confirm"
+                              title="Подтвердить платёж?"
+                              okText="Да"
+                              cancelText="Отмена"
+                              onConfirm={() => handleConfirmPayment(pay.id)}
+                            >
+                              <Button
+                                type="primary"
+                                size="small"
+                                loading={confirmingPay === pay.id}
+                              >
+                                Подтвердить
+                              </Button>
+                            </Popconfirm>,
+                            <Button
+                              key="reject"
+                              danger
+                              size="small"
+                              loading={rejectingPay === pay.id}
+                              onClick={() => openRejectModal(pay.id)}
+                            >
+                              Отклонить
+                            </Button>,
+                          ]
+                        : []),
+                      ...(canDelete
+                        ? [
+                            <Popconfirm
+                              key="del"
+                              title="Удалить платёж?"
+                              okText="Да"
+                              cancelText="Отмена"
+                              onConfirm={() => handleDeletePayment(pay.id)}
+                            >
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                loading={deletingPay === pay.id}
+                              />
+                            </Popconfirm>,
+                          ]
+                        : []),
+                    ]}
+                  >
+                    <div style={{ width: '100%' }}>
+                      <Space wrap size={[8, 4]}>
+                        <Text strong style={{ whiteSpace: 'nowrap' }}>
+                          {fmt(pay.amount, pay.currency)}
+                        </Text>
+                        <Tag color={PAYMENT_STATUS_COLOR[pay.status]}>
+                          {PAYMENT_STATUS_LABEL[pay.status]}
+                        </Tag>
+                        {pay.file_name && (
+                          <Text type="secondary" style={{ fontSize: 11 }} title={pay.file_name}>
+                            <PaperClipOutlined /> {pay.file_name}
+                          </Text>
+                        )}
+                        {pay.note && <Text type="secondary">{pay.note}</Text>}
+                        <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                          {new Date(pay.created_at).toLocaleDateString('ru-RU')}
+                        </Text>
+                      </Space>
+                      {pay.status === 'rejected' && pay.rejection_reason && (
+                        <div style={{ marginTop: 4 }}>
+                          <Text type="danger" style={{ fontSize: 12 }}>
+                            Причина отклонения: {pay.rejection_reason}
+                          </Text>
+                        </div>
+                      )}
+                    </div>
+                  </List.Item>
+                );
+              }}
+            />
+          )}
+
+          {/* Добавить платёж */}
+          {!isCompleted && (
+            <>
+              <Divider style={{ margin: '12px 0' }} />
+              {addPaymentOpen ? (
+                <Form
+                  form={addPaymentForm}
+                  layout="vertical"
+                  onFinish={handleAddPayment}
+                  initialValues={{ currency: req.currency }}
+                >
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Form.Item
+                      name="amount"
+                      rules={[{ required: true, message: 'Укажите сумму' }]}
+                      style={{ marginBottom: 8, flex: '0 0 140px' }}
+                    >
+                      <InputNumber placeholder="Сумма" min={0.01} style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item name="currency" style={{ marginBottom: 8, flex: '0 0 100px' }}>
+                      <Select
+                        options={[
+                          { value: 'CNY', label: 'CNY' },
+                          { value: 'USD', label: 'USD' },
+                          { value: 'RUB', label: 'RUB' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="note" style={{ marginBottom: 8, flex: '1 1 180px' }}>
+                      <Input placeholder="Примечание (необязательно)" />
+                    </Form.Item>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <Upload
+                      showUploadList={false}
+                      beforeUpload={(file: RcFile) => {
+                        if (!isFileSizeValid(file)) return Upload.LIST_IGNORE;
+                        return false;
+                      }}
+                      fileList={paymentFile}
+                      onChange={({ fileList }) => setPaymentFile(fileList.slice(0, 1))}
+                      maxCount={1}
+                    >
+                      <Button size="small" icon={<UploadOutlined />}>
+                        {paymentFile.length ? paymentFile[0].name : 'Прикрепить файл'}
+                      </Button>
+                    </Upload>
+                    {paymentFile.length > 0 && (
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        onClick={() => setPaymentFile([])}
+                      >
+                        ✕
+                      </Button>
+                    )}
+                  </div>
+                  <Space>
+                    <Button
+                      type="primary"
+                      size="small"
+                      loading={addPaymentLoading}
+                      onClick={() => addPaymentForm.submit()}
+                    >
+                      Сохранить
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        addPaymentForm.resetFields();
+                        setPaymentFile([]);
+                        setAddPaymentOpen(false);
+                      }}
+                    >
+                      Отмена
+                    </Button>
+                  </Space>
+                </Form>
+              ) : (
+                <Button
+                  icon={<PlusOutlined />}
+                  size="small"
+                  onClick={() => {
+                    addPaymentForm.setFieldValue('currency', req.currency);
+                    setAddPaymentOpen(true);
+                  }}
+                >
+                  Добавить платёж
+                </Button>
+              )}
+            </>
+          )}
+
+          {/* Комментарии */}
+          <Divider style={{ margin: '12px 0' }}>
+            Комментарии ({comments.length})
+          </Divider>
+          {comments.length === 0 ? (
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              Нет комментариев
+            </Text>
+          ) : (
+            <List
+              size="small"
+              dataSource={comments}
+              renderItem={(c) => {
+                const canDelete = isAdmin || c.author_id === user?.id;
+                return (
+                  <List.Item
+                    actions={
+                      canDelete
+                        ? [
+                            <Popconfirm
+                              key="del"
+                              title="Удалить комментарий?"
+                              okText="Да"
+                              cancelText="Отмена"
+                              onConfirm={() => handleDeleteComment(c.id)}
+                            >
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                loading={deletingComment === c.id}
+                              />
+                            </Popconfirm>,
+                          ]
+                        : []
+                    }
+                  >
+                    <div style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                        <Text strong>{c.author_full_name}</Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {dayjs(c.created_at).format('DD.MM.YYYY HH:mm')}
+                        </Text>
+                      </div>
+                      <div style={{ whiteSpace: 'pre-wrap', marginTop: 2 }}>
+                        {c.text}
+                      </div>
+                    </div>
+                  </List.Item>
+                );
+              }}
+            />
+          )}
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Input.TextArea
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder="Добавить комментарий..."
+              rows={2}
+              maxLength={4000}
+              style={{ flex: 1 }}
+            />
+            <Button
+              type="primary"
+              loading={commentLoading}
+              onClick={handleAddComment}
+              disabled={!commentText.trim()}
+            >
+              Отправить
+            </Button>
+          </div>
+        </>
+      )}
+
+      {/* Модалка отклонения платежа */}
+      <Modal
+        open={rejectModalPayId !== null}
+        title="Отклонить платёж"
+        okText="Отклонить"
+        cancelText="Отмена"
+        okButtonProps={{ danger: true, loading: rejectingPay !== null }}
+        onOk={handleRejectPayment}
+        onCancel={() => {
+          setRejectModalPayId(null);
+          setRejectReason('');
+        }}
+        destroyOnClose
+      >
+        <Paragraph>
+          Укажите причину отклонения — клиент получит уведомление с этим сообщением.
+        </Paragraph>
+        <Input.TextArea
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          placeholder="Причина отклонения"
+          rows={3}
+          maxLength={1000}
+          autoFocus
+        />
+      </Modal>
+    </Modal>
+  );
+}

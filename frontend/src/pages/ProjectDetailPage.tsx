@@ -1,0 +1,343 @@
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Button,
+  Divider,
+  Grid,
+  Popconfirm,
+  Space,
+  Spin,
+  Tabs,
+  Tag,
+  Typography,
+  theme,
+  message,
+} from 'antd';
+import {
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+} from '@ant-design/icons';
+import {
+  deleteProject,
+  downloadProjectExport,
+  getProject,
+  getProjectSummary,
+} from '../api/projects';
+import { useAuth } from '../contexts/AuthContext';
+import ItemsPanel from '../components/ProjectDetail/ItemsPanel';
+import PaymentRequestsPanel from '../components/ProjectDetail/PaymentRequestsPanel';
+import ProjectFormModal from '../components/Projects/ProjectFormModal';
+import type { Currency } from '../types';
+import { fmt } from '../utils/format';
+
+const { Text, Title } = Typography;
+const { useToken } = theme;
+const { useBreakpoint } = Grid;
+
+const STATUS_LABELS: Record<string, string> = {
+  active: 'В работе',
+  closed: 'Закрытый',
+};
+const STATUS_COLORS: Record<string, string> = {
+  active: 'green',
+  closed: 'default',
+};
+
+export default function ProjectDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const projectId = Number(id);
+  const navigate = useNavigate();
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const { token } = useToken();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md; // < 768px
+  const [editOpen, setEditOpen] = useState(false);
+
+  const { data: project, isLoading } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => getProject(projectId),
+    enabled: !!projectId,
+  });
+
+  const { data: summary } = useQuery({
+    queryKey: ['project-summary', projectId],
+    queryFn: () => getProjectSummary(projectId),
+    enabled: !!projectId,
+  });
+
+  const handleDelete = async () => {
+    try {
+      await deleteProject(projectId);
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      message.success('Проект удалён');
+      navigate('/projects');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Ошибка удаления');
+    }
+  };
+
+  const handleExport = async () => {
+    if (!project) return;
+    try {
+      await downloadProjectExport(projectId, project.project_number);
+      message.success('Файл Excel загружен');
+    } catch {
+      message.error('Не удалось выгрузить Excel');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          paddingTop: 80,
+          minHeight: '100vh',
+          background: token.colorBgLayout,
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!project) return null;
+
+  // ── Шапка проекта (адаптивная) ──
+  const header = (
+    <div
+      style={{
+        background: token.colorBgContainer,
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        padding: isMobile ? '12px 16px' : '14px 24px',
+        flexShrink: 0,
+      }}
+    >
+      {/* Строка 1: назад + название + статус + действия */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Button
+          icon={<ArrowLeftOutlined />}
+          type="text"
+          onClick={() => navigate('/projects')}
+          style={{ flexShrink: 0 }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            №{project.project_number}
+          </Text>
+          <Title
+            level={isMobile ? 5 : 4}
+            style={{
+              margin: 0,
+              letterSpacing: '-0.01em',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {project.name}
+          </Title>
+        </div>
+        <Tag color={STATUS_COLORS[project.status]} style={{ flexShrink: 0 }}>
+          {STATUS_LABELS[project.status] ?? project.status}
+        </Tag>
+        <Space size={4} wrap>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+          >
+            {isMobile ? '' : 'Excel'}
+          </Button>
+          {isAdmin && (
+            <>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => setEditOpen(true)}
+              >
+                {isMobile ? '' : 'Редактировать'}
+              </Button>
+              <Popconfirm
+                title="Удалить проект?"
+                description="Проект без заявок на оплату будет удалён навсегда."
+                okText="Удалить"
+                okType="danger"
+                cancelText="Отмена"
+                onConfirm={handleDelete}
+              >
+                <Button size="small" danger icon={<DeleteOutlined />}>
+                  {isMobile ? '' : 'Удалить'}
+                </Button>
+              </Popconfirm>
+            </>
+          )}
+        </Space>
+      </div>
+
+      {/* Строка 2: клиент + дата + баланс */}
+      <div
+        style={{
+          display: 'flex',
+          gap: isMobile ? 10 : 20,
+          paddingLeft: isMobile ? 0 : 44,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          fontSize: 13,
+        }}
+      >
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Клиент: <Text strong>{project.client.full_name}</Text>
+        </Text>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Создан:{' '}
+          {new Date(project.created_at).toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+          })}
+        </Text>
+
+        {summary && summary.currencies.length > 0 && (
+          <>
+            {!isMobile && <Divider type="vertical" style={{ margin: 0 }} />}
+            {summary.currencies.map((s) => (
+              <Text key={s.currency} style={{ fontSize: 13 }}>
+                <Tag style={{ marginRight: 4 }}>{s.currency}</Tag>
+                Итого: <Text strong>{fmt(s.total, s.currency as Currency)}</Text>
+                <Text type="secondary"> · </Text>
+                <Text type={parseFloat(s.remaining) > 0 ? 'danger' : 'success'}>
+                  Остаток: {fmt(s.remaining, s.currency as Currency)}
+                </Text>
+              </Text>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Мобильная раскладка: табы ──
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100vh',
+          background: token.colorBgLayout,
+        }}
+      >
+        {header}
+        <div style={{ flex: 1, background: token.colorBgContainer }}>
+          <Tabs
+            defaultActiveKey="items"
+            centered
+            destroyInactiveTabPane={false}
+            items={[
+              {
+                key: 'items',
+                label: 'Номенклатура',
+                children: <ItemsPanel projectId={projectId} />,
+              },
+              {
+                key: 'payments',
+                label: 'Заявки на оплату',
+                children: (
+                  <div style={{ background: token.colorBgLayout, minHeight: 200 }}>
+                    <PaymentRequestsPanel projectId={projectId} />
+                  </div>
+                ),
+              },
+            ]}
+            tabBarStyle={{
+              margin: 0,
+              padding: '0 12px',
+              background: token.colorBgContainer,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            }}
+          />
+        </div>
+
+        {isAdmin && (
+          <ProjectFormModal
+            open={editOpen}
+            project={project}
+            onClose={() => setEditOpen(false)}
+            onSuccess={() => {
+              setEditOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+              queryClient.invalidateQueries({ queryKey: ['projects'] });
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // ── Десктопная раскладка: две панели ──
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        background: token.colorBgLayout,
+      }}
+    >
+      {header}
+
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Левая панель — номенклатура (40%) */}
+        <div
+          style={{
+            width: '40%',
+            minWidth: 300,
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
+            overflowY: 'auto',
+            background: token.colorBgContainer,
+          }}
+        >
+          <ItemsPanel projectId={projectId} />
+        </div>
+
+        {/* Правая панель — заявки на оплату */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            background: token.colorBgLayout,
+          }}
+        >
+          <PaymentRequestsPanel projectId={projectId} />
+        </div>
+      </div>
+
+      {isAdmin && (
+        <ProjectFormModal
+          open={editOpen}
+          project={project}
+          onClose={() => setEditOpen(false)}
+          onSuccess={() => {
+            setEditOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+          }}
+        />
+      )}
+    </div>
+  );
+}

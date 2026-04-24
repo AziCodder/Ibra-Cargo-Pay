@@ -1,0 +1,3 @@
+# Ежедневный бэкап БД в 03:00 Europe/Moscow.
+# Sidecar дёргает backend, который делает pg_dump и заливает в S3.
+0 3 * * * /usr/local/bin/run-backup.sh >> /var/log/backup.log 2>&1
