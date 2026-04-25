@@ -1,124 +1,177 @@
-# Project Management & Payment Tracking Platform
+# Ibra Cargo Pay — Project Management & Payment Tracking
 
-Internal system for managing projects, suppliers, nomenclature, payment requests, and payments. Role-based access (admin / client). Telegram notifications.
+Внутренняя система управления проектами, поставщиками, номенклатурой, заявками
+на оплату и платежами. Роли: admin / client. Уведомления через Telegram.
 
 ## Stack
 
-- **Backend:** FastAPI + SQLAlchemy (async) + PostgreSQL
-- **Frontend:** React + TypeScript + Vite + Ant Design
+- **Backend:** FastAPI + SQLAlchemy (async) + PostgreSQL 16
+- **Frontend:** React + TypeScript + Vite + Ant Design (раздаётся через nginx в проде)
 - **Bot:** Telegram (aiogram)
-- **Storage:** S3-compatible (configured via environment variables)
+- **Storage:** S3-compatible (для документов и бэкапов БД)
 - **Infrastructure:** Docker Compose
+- **Backups:** sidecar-контейнер с cron, ежедневно в 03:00 Europe/Moscow
 
 ---
 
-## Quick Start
+## Production deploy на Ubuntu 22.04 (24/7)
 
-### 1. Copy environment file
+Все шаги выполняются от root. Если в `/opt` остались старые попытки —
+сначала запустите `sudo bash scripts/server-cleanup.sh` после клонирования.
+
+### 1. Клонирование
 
 ```bash
-cp .env .env
+sudo mkdir -p /opt
+sudo git clone https://github.com/AziCodder/Ibra-Cargo-Pay.git /opt/ibra-cargo-pay
+cd /opt/ibra-cargo-pay
 ```
 
-Edit `.env` and fill in all required values (database password, secret key, S3 credentials, Telegram token).
-
-### 2. Build and start all services
+### 2. Конфигурация окружения
 
 ```bash
+sudo cp .env.example .env
+sudo nano .env   # заполните DB_PASSWORD, SECRET_KEY, S3_*, TELEGRAM_BOT_TOKEN, BOT_SECRET
+```
+
+`SECRET_KEY` сгенерируйте: `openssl rand -hex 32`.
+
+### 3. Запуск (установит Docker если его нет)
+
+```bash
+sudo bash scripts/deploy.sh
+```
+
+Скрипт идемпотентный: установит Docker Engine + compose plugin, проверит `.env`,
+поднимет стек через `docker compose up -d --build`.
+
+### 4. Автозапуск после ребута
+
+`restart: unless-stopped` уже стоит на всех сервисах. Достаточно убедиться,
+что docker.service включён (deploy.sh это делает):
+
+```bash
+sudo systemctl is-enabled docker   # должен ответить enabled
+```
+
+Опционально — оборачивающий systemd-юнит:
+
+```bash
+sudo cp scripts/ibra-cargo-pay.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ibra-cargo-pay.service
+```
+
+### 5. Проверка
+
+```bash
+curl -fsS http://localhost:8000/health    # {"status":"ok"}
+docker compose ps                          # все сервисы Up (healthy)
+docker compose logs -f --tail=50           # живые логи
+```
+
+| Сервис   | URL                                |
+|----------|------------------------------------|
+| Frontend | `http://<server-ip>/`              |
+| Backend  | `http://<server-ip>:8000`          |
+| API docs | `http://<server-ip>:8000/docs`     |
+
+---
+
+## Обновление
+
+```bash
+cd /opt/ibra-cargo-pay
+sudo bash scripts/update.sh
+```
+
+Делает `git fetch && git reset --hard origin/main`, пересобирает образы и
+рестартует контейнеры.
+
+---
+
+## Локальная разработка
+
+### Через Docker Compose
+
+```bash
+cp .env.example .env
 docker compose up --build
 ```
 
-### 3. Verify services
+Frontend (nginx-сборка) на `http://localhost:80`. Для горячей перезагрузки
+фронта используйте Vite напрямую:
 
-| Service  | URL                          |
-|----------|------------------------------|
-| Backend  | http://localhost:8000        |
-| API docs | http://localhost:8000/docs   |
-| Frontend | http://localhost:5173        |
-| Database | localhost:5432               |
-
-Health check: `curl http://localhost:8000/health` → `{"status":"ok"}`
-
----
-
-## Development
-
-### Run services individually (without Docker)
-
-**Backend:**
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-**Frontend:**
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev   # http://localhost:5173, проксирует /api на backend
 ```
 
-**Bot:**
+### Backend без Docker
+
 ```bash
-cd bot
+cd backend
+python3.12 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
+alembic upgrade head
+uvicorn main:app --reload --port 8000
 ```
 
-### Database migrations (Alembic)
+### Миграции БД
 
 ```bash
-# Inside the backend container
 docker compose exec backend alembic upgrade head
-
-# Generate a new migration
 docker compose exec backend alembic revision --autogenerate -m "description"
 ```
 
 ---
 
-## Environment Variables
+## Переменные окружения
+
+См. [.env.example](.env.example). Ключевые:
 
 | Variable | Description |
 |----------|-------------|
-| `DB_NAME` | PostgreSQL database name |
-| `DB_USER` | PostgreSQL user |
-| `DB_PASSWORD` | PostgreSQL password |
-| `SECRET_KEY` | JWT signing secret (min 32 chars) |
-| `FRONTEND_URL` | Frontend origin for CORS |
-| `S3_ENDPOINT_URL` | S3-compatible endpoint URL |
-| `S3_ACCESS_KEY_ID` | S3 access key |
-| `S3_SECRET_ACCESS_KEY` | S3 secret key |
-| `S3_BUCKET_NAME` | S3 bucket name |
-| `S3_REGION` | S3 region |
-| `TELEGRAM_BOT_TOKEN` | Token from @BotFather |
-| `BACKEND_URL` | Backend URL for Vite proxy (Docker only) |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` | PostgreSQL credentials |
+| `SECRET_KEY` | JWT signing secret (≥32 символов) |
+| `FRONTEND_URL` | Origin фронта для CORS (`http://<домен>`) |
+| `S3_*` | S3-совместимое хранилище для файлов |
+| `TELEGRAM_BOT_TOKEN` | Токен из @BotFather |
+| `BOT_SECRET` | Секрет для подписи запросов bot ↔ backend |
+| `BACKUP_S3_BUCKET` | Bucket для дампов БД (пусто = бэкапы выключены) |
+| `BACKUP_TRIGGER_SECRET` | Секрет, которым cron-sidecar триггерит /api/backups/run |
 
 ---
 
-## Project Structure
+## Структура
 
 ```
-├── backend/          FastAPI application
-│   ├── app/
-│   │   ├── api/      Route modules
-│   │   ├── core/     Config, DB, security, dependencies
-│   │   ├── models/   SQLAlchemy models
-│   │   ├── schemas/  Pydantic schemas
-│   │   └── services/ Business logic (file upload, notifications)
-│   ├── alembic/      Database migrations
-│   └── tests/
-├── frontend/         React + Vite application
-│   └── src/
-│       ├── api/      Axios API client modules
-│       ├── components/
-│       ├── contexts/ AuthContext
-│       ├── i18n/     Russian UI strings
-│       ├── pages/
-│       └── types/
+├── backend/          FastAPI + SQLAlchemy + Alembic
+├── frontend/         React + Vite + nginx (прод)
 ├── bot/              Telegram bot (aiogram)
+├── backup/           Cron-sidecar, ежедневный pg_dump → S3
+├── scripts/
+│   ├── deploy.sh             первичная установка на Ubuntu 22.04
+│   ├── update.sh             git pull + rebuild
+│   ├── server-cleanup.sh     снос старых попыток в /opt
+│   └── ibra-cargo-pay.service  опциональный systemd unit
 ├── docker-compose.yml
 └── .env.example
 ```
+
+---
+
+## Эксплуатация
+
+```bash
+docker compose ps                     # статус
+docker compose logs -f backend        # логи сервиса
+docker compose restart backend        # рестарт одного сервиса
+docker compose down                   # остановить всё
+docker compose down -v                # + удалить volume с БД (ОПАСНО)
+docker compose exec db psql -U postgres project_manager   # консоль БД
+```
+
+Бэкапы: триггерятся cron-ом в контейнере `backup` ежедневно в 03:00 MSK.
+Ручной запуск: `docker compose exec backup /usr/local/bin/run-backup.sh`.
