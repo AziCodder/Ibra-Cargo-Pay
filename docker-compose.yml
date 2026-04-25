@@ -75,18 +75,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  backup:
-    build:
-      context: ./backup
-      dockerfile: Dockerfile
-    environment:
-      TZ: Europe/Moscow
-      BACKEND_URL: http://backend:8000
-      BACKUP_TRIGGER_SECRET: ${BACKUP_TRIGGER_SECRET:-change-me-backup-secret}
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   postgres_data:
