@@ -11,6 +11,7 @@ ENV TZ=Europe/Moscow
 COPY crontab /etc/crontabs/root
 COPY entrypoint.sh /entrypoint.sh
 COPY run-backup.sh /usr/local/bin/run-backup.sh
-RUN chmod +x /entrypoint.sh /usr/local/bin/run-backup.sh
+RUN sed -i 's/\r//' /entrypoint.sh /usr/local/bin/run-backup.sh \
+    && chmod +x /entrypoint.sh /usr/local/bin/run-backup.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
