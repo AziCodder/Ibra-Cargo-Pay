@@ -5,8 +5,11 @@ services:
       POSTGRES_DB: ${DB_NAME:-project_manager}
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
-    ports:
-      - "5432:5432"
+    # Порт наружу не пробрасываем: backend/bot ходят по внутренней сети.
+    # Чтобы подключиться с хоста — docker compose exec db psql -U postgres project_manager
+    # либо временно раскомментировать ports ниже.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
