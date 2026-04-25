@@ -29,3 +29,9 @@ Thumbs.db
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 *.log
+
+# ─── Claude Code System (NOT project-related) ──────────────────────────────────
+.claude/
+.claude-flow/
+.swarm/
+backup/
