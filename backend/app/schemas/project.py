@@ -64,6 +64,7 @@ class CurrencySummary(BaseModel):
     total: Decimal
     paid: Decimal
     remaining: Decimal
+    commission: Decimal | None = None  # None для клиента
     profit: Decimal | None = None  # None для клиента
 
 

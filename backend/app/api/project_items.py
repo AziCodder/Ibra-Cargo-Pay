@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -9,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
+from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
 from app.models.project_item import ProjectItem
@@ -38,10 +40,32 @@ async def _check_access(project: Project, current_user) -> None:
         raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
 
 
-def _serialize_item(item: ProjectItem, is_admin: bool):
+def _serialize_item(
+    item: ProjectItem, is_admin: bool, invoiced_amount: Decimal = Decimal("0")
+):
     if is_admin:
-        return ProjectItemAdminOut.model_validate(item)
-    return ProjectItemClientOut.model_validate(item)
+        obj = ProjectItemAdminOut.model_validate(item)
+    else:
+        obj = ProjectItemClientOut.model_validate(item)
+    obj.invoiced_amount = invoiced_amount
+    return obj
+
+
+async def _get_invoiced_map(
+    item_ids: list[int], db: AsyncSession
+) -> dict[int, Decimal]:
+    """Возвращает сумму PaymentRequestItem.amount, сгруппированную по project_item_id."""
+    if not item_ids:
+        return {}
+    result = await db.execute(
+        select(
+            PaymentRequestItem.project_item_id,
+            func.coalesce(func.sum(PaymentRequestItem.amount), 0).label("invoiced"),
+        )
+        .where(PaymentRequestItem.project_item_id.in_(item_ids))
+        .group_by(PaymentRequestItem.project_item_id)
+    )
+    return {row[0]: Decimal(str(row[1])) for row in result.all()}
 
 
 @router.get("")
@@ -64,7 +88,8 @@ async def list_items(
     )
     items = result.scalars().all()
     is_admin = current_user.role == "admin"
-    return [_serialize_item(item, is_admin) for item in items]
+    invoiced_map = await _get_invoiced_map([i.id for i in items], db)
+    return [_serialize_item(item, is_admin, invoiced_map.get(item.id, Decimal("0"))) for item in items]
 
 
 @router.get("/import-template")
@@ -194,7 +219,8 @@ async def get_item(
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Позиция не найдена")
-    return _serialize_item(item, current_user.role == "admin")
+    invoiced_map = await _get_invoiced_map([item.id], db)
+    return _serialize_item(item, current_user.role == "admin", invoiced_map.get(item.id, Decimal("0")))
 
 
 @router.put("/{item_id}")

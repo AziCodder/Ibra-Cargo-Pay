@@ -80,7 +80,10 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
             {project.name}
           </Title>
         </div>
-        <Tag color={STATUS_COLORS[project.status]}>
+        <Tag
+          color={STATUS_COLORS[project.status]}
+          style={{ alignSelf: 'flex-start', flexShrink: 0, marginTop: 2 }}
+        >
           {STATUS_LABELS[project.status] ?? project.status}
         </Tag>
       </div>

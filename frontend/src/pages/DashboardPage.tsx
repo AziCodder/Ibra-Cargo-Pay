@@ -15,6 +15,7 @@ import {
   FolderOpenOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getDashboardSummary } from '../api/dashboard';
 import { fmt } from '../utils/format';
@@ -31,6 +32,7 @@ const CURRENCY_COLOR: Record<string, string> = {
 
 export default function DashboardPage() {
   const { token } = useToken();
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: getDashboardSummary,
@@ -64,7 +66,12 @@ export default function DashboardPage() {
       {/* Счётчики */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} md={8}>
-          <Card size="small">
+          <Card
+            size="small"
+            hoverable
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/projects?status=active')}
+          >
             <Statistic
               title="Активные проекты"
               value={data.projects_active}
@@ -74,7 +81,12 @@ export default function DashboardPage() {
           </Card>
         </Col>
         <Col xs={24} sm={12} md={8}>
-          <Card size="small">
+          <Card
+            size="small"
+            hoverable
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/projects?status=closed')}
+          >
             <Statistic
               title="Закрытые проекты"
               value={data.projects_closed}

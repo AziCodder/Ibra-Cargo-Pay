@@ -146,6 +146,7 @@ export interface CurrencySummary {
   total: string;
   paid: string;
   remaining: string;
+  commission?: string | null;
   profit?: string | null;
 }
 
@@ -173,6 +174,7 @@ export interface ProjectItem {
   cost_price?: string; // только для admin
   currency: Currency;
   commission: string;
+  invoiced_amount: string; // сумма по PaymentRequestItem для этой позиции
   requirements: Requirement[];
   created_at: string;
 }

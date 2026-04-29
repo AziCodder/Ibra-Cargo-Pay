@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Radio, Spin, Empty, message, Row, Col } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listProjects, deleteProject } from '../api/projects';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +14,15 @@ type StatusFilter = 'all' | 'active' | 'closed';
 export default function ProjectsPage() {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initialStatus = (): StatusFilter => {
+    const s = searchParams.get('status');
+    if (s === 'active' || s === 'closed') return s;
+    return 'all';
+  };
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [showCreate, setShowCreate] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
 
@@ -66,7 +75,15 @@ export default function ProjectsPage() {
 
       <Radio.Group
         value={statusFilter}
-        onChange={(e) => setStatusFilter(e.target.value)}
+        onChange={(e) => {
+          const val = e.target.value as StatusFilter;
+          setStatusFilter(val);
+          if (val === 'all') {
+            setSearchParams({});
+          } else {
+            setSearchParams({ status: val });
+          }
+        }}
         style={{ marginBottom: 20 }}
         optionType="button"
         buttonStyle="solid"

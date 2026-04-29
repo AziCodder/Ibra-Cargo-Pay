@@ -44,13 +44,10 @@ async def dashboard_summary(
     projects_closed = (await db.execute(closed_q)).scalar_one()
 
     # ── Итоги по номенклатуре (все проекты) ──
+    # total = price * quantity (без комиссии)
     items_q = select(
         ProjectItem.currency,
-        func.sum(
-            ProjectItem.price
-            * (1 + ProjectItem.commission / 100)
-            * ProjectItem.quantity
-        ).label("total"),
+        func.sum(ProjectItem.price * ProjectItem.quantity).label("total"),
     ).group_by(ProjectItem.currency)
     items_rows = (await db.execute(items_q)).all()
 

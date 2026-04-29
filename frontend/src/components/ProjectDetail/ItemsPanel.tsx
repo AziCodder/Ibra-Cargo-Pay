@@ -40,21 +40,34 @@ const { Text } = Typography;
 function SummaryRow({ summary, isAdmin }: { summary: CurrencySummary; isAdmin: boolean }) {
   return (
     <div style={{ padding: '4px 0' }}>
-      <Text strong style={{ marginRight: 8 }}>
-        {summary.currency}:
-      </Text>
-      <Text>Итого: {fmt(summary.total, summary.currency)}</Text>
-      <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
-      <Text>Оплачено: {fmt(summary.paid, summary.currency)}</Text>
-      <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
-      <Text type={parseFloat(summary.remaining) > 0 ? 'danger' : 'success'}>
-        Остаток: {fmt(summary.remaining, summary.currency)}
-      </Text>
-      {isAdmin && summary.profit != null && (
-        <>
-          <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
-          <Text type="success">Прибыль: {fmt(summary.profit, summary.currency)}</Text>
-        </>
+      <div>
+        <Text strong style={{ marginRight: 8 }}>
+          {summary.currency}:
+        </Text>
+        <Text>Итого: {fmt(summary.total, summary.currency)}</Text>
+        <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
+        <Text>Оплачено: {fmt(summary.paid, summary.currency)}</Text>
+        <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
+        <Text type={parseFloat(summary.remaining) > 0 ? 'danger' : 'success'}>
+          Остаток: {fmt(summary.remaining, summary.currency)}
+        </Text>
+      </div>
+      {(summary.commission != null || (isAdmin && summary.profit != null)) && (
+        <div style={{ paddingLeft: 0, marginTop: 2 }}>
+          {summary.commission != null && (
+            <Text type="secondary" style={{ fontSize: 12, marginRight: 12 }}>
+              Комиссия: {fmt(summary.commission, summary.currency)}
+            </Text>
+          )}
+          {isAdmin && summary.profit != null && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Прибыль:{' '}
+              <Text type="success" style={{ fontSize: 12 }}>
+                {fmt(summary.profit, summary.currency)}
+              </Text>
+            </Text>
+          )}
+        </div>
       )}
     </div>
   );

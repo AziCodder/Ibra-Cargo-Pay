@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   DatePicker,
   Form,
@@ -10,6 +11,7 @@ import {
   Input,
   Upload,
   Typography,
+  Tag,
   message,
 } from 'antd';
 import type { UploadFile } from 'antd';
@@ -29,6 +31,7 @@ interface ItemRow {
   name: string;
   currency: Currency;
   amount: number | null;
+  max_amount: number; // price × qty − invoiced_amount
 }
 
 interface Props {
@@ -62,42 +65,69 @@ export default function PaymentRequestFormModal({
     }
   }, [open, form]);
 
-  const tableData: ItemRow[] = items.map((item: ProjectItem) => ({
-    project_item_id: item.id,
-    name: item.name,
-    currency: item.currency,
-    amount: null,
-  }));
+  const tableData: ItemRow[] = useMemo(
+    () =>
+      items.map((item: ProjectItem) => {
+        const price = parseFloat(item.price);
+        const qty = parseFloat(item.quantity);
+        const invoiced = parseFloat(item.invoiced_amount ?? '0');
+        return {
+          project_item_id: item.id,
+          name: item.name,
+          currency: item.currency,
+          amount: null,
+          max_amount: Math.max(0, price * qty - invoiced),
+        };
+      }),
+    [items],
+  );
+
+  // Derived state
+  const selectedCurrencies = useMemo(
+    () => [...new Set(selectedRows.map((r) => r.currency))],
+    [selectedRows],
+  );
+  const hasMixedCurrencies = selectedCurrencies.length > 1;
+  const detectedCurrency = selectedCurrencies.length === 1 ? selectedCurrencies[0] : null;
+  const computedTotal = selectedRows.reduce((sum, r) => sum + (r.amount ?? 0), 0);
+  const validItems = selectedRows.filter((r) => r.amount && r.amount > 0);
 
   const handleAmountChange = (projectItemId: number, value: number | null) => {
-    setSelectedRows((prev) => {
-      const updated = prev.map((r) =>
+    setSelectedRows((prev) =>
+      prev.map((r) =>
         r.project_item_id === projectItemId ? { ...r, amount: value } : r,
-      );
-      const total = updated.reduce((sum, r) => sum + (r.amount ?? 0), 0);
-      form.setFieldValue('total_amount', total > 0 ? total : null);
-
-      const currencies = [...new Set(updated.map((r) => r.currency))];
-      if (currencies.length === 1) {
-        form.setFieldValue('currency', currencies[0]);
-      }
-
-      return updated;
-    });
+      ),
+    );
   };
 
   const handleSave = async (values: {
-    total_amount: number;
-    currency: Currency;
     requisites?: string;
     payment_details?: string;
     due_date?: Dayjs | null;
     priority?: PaymentRequestPriority;
   }) => {
-    const validItems = selectedRows.filter((r) => r.amount && r.amount > 0);
     if (validItems.length === 0) {
       message.warning('Выберите хотя бы одну позицию с суммой');
       return;
+    }
+    if (hasMixedCurrencies) {
+      message.error('Нельзя объединять позиции с разными валютами в одной заявке');
+      return;
+    }
+    if (!detectedCurrency) {
+      message.error('Выберите позиции для заявки');
+      return;
+    }
+
+    // Проверяем лимиты по каждой позиции
+    for (const row of validItems) {
+      const tableRow = tableData.find((t) => t.project_item_id === row.project_item_id);
+      if (tableRow && row.amount! > tableRow.max_amount + 0.005) {
+        message.error(
+          `Сумма по позиции «${tableRow.name}» превышает допустимый остаток (${tableRow.max_amount.toLocaleString('ru-RU', { maximumFractionDigits: 2 })})`,
+        );
+        return;
+      }
     }
 
     setLoading(true);
@@ -107,15 +137,14 @@ export default function PaymentRequestFormModal({
           project_item_id: r.project_item_id,
           amount: r.amount!,
         })),
-        total_amount: values.total_amount,
-        currency: values.currency,
+        total_amount: computedTotal,
+        currency: detectedCurrency,
         requisites: values.requisites || null,
         payment_details: values.payment_details || null,
         due_date: values.due_date ? values.due_date.format('YYYY-MM-DD') : null,
         priority: values.priority ?? 'normal',
       });
 
-      // Загружаем прикреплённые файлы
       for (const f of fileList) {
         if (f.originFileObj) {
           try {
@@ -137,23 +166,52 @@ export default function PaymentRequestFormModal({
   };
 
   const columns = [
-    { title: 'Позиция', dataIndex: 'name', key: 'name' },
-    { title: 'Валюта', dataIndex: 'currency', key: 'currency', width: 80 },
+    {
+      title: 'Позиция',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: 'Валюта',
+      dataIndex: 'currency',
+      key: 'currency',
+      width: 70,
+    },
+    {
+      title: 'Доступно',
+      key: 'max_amount',
+      width: 110,
+      render: (_: unknown, record: ItemRow) => {
+        const tableRow = tableData.find((t) => t.project_item_id === record.project_item_id);
+        if (!tableRow) return '—';
+        return (
+          <Text
+            type={tableRow.max_amount <= 0 ? 'danger' : 'secondary'}
+            style={{ fontSize: 12 }}
+          >
+            {tableRow.max_amount.toLocaleString('ru-RU', { maximumFractionDigits: 2 })}
+          </Text>
+        );
+      },
+    },
     {
       title: 'Сумма',
       key: 'amount',
       width: 140,
       render: (_: unknown, record: ItemRow) => {
         const row = selectedRows.find((r) => r.project_item_id === record.project_item_id);
-        return row ? (
+        const tableRow = tableData.find((t) => t.project_item_id === record.project_item_id);
+        if (!row) return <Text type="secondary">—</Text>;
+        const exceeds = row.amount !== null && tableRow && row.amount > tableRow.max_amount + 0.005;
+        return (
           <InputNumber
             min={0.01}
+            max={tableRow && tableRow.max_amount > 0 ? tableRow.max_amount : undefined}
             style={{ width: '100%' }}
+            status={exceeds ? 'error' : undefined}
             value={row.amount ?? undefined}
             onChange={(v) => handleAmountChange(record.project_item_id, v)}
           />
-        ) : (
-          <Text type="secondary">—</Text>
         );
       },
     },
@@ -171,6 +229,12 @@ export default function PaymentRequestFormModal({
         })),
       );
     },
+    getCheckboxProps: (record: ItemRow) => {
+      const tableRow = tableData.find((t) => t.project_item_id === record.project_item_id);
+      return {
+        disabled: tableRow ? tableRow.max_amount <= 0 : false,
+      };
+    },
   };
 
   return (
@@ -182,11 +246,19 @@ export default function PaymentRequestFormModal({
       okText="Создать"
       cancelText="Отмена"
       confirmLoading={loading}
-      width="min(680px, 94vw)"
+      width="min(700px, 94vw)"
       destroyOnClose
     >
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12 }}>
         <Text type="secondary">Выберите позиции и укажите суммы по каждой:</Text>
+        {hasMixedCurrencies && (
+          <Alert
+            style={{ marginTop: 8 }}
+            type="error"
+            showIcon
+            message="В одну заявку можно включать только позиции с одинаковой валютой"
+          />
+        )}
         <Table
           rowKey="project_item_id"
           size="small"
@@ -198,32 +270,55 @@ export default function PaymentRequestFormModal({
         />
       </div>
 
+      {/* Итог и валюта — вычисляются автоматически */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 16,
+          alignItems: 'center',
+          padding: '10px 12px',
+          marginBottom: 16,
+          background: 'rgba(255,255,255,0.04)',
+          borderRadius: 8,
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Итоговая сумма
+          </Text>
+          <div>
+            <Text strong style={{ fontSize: 16 }}>
+              {computedTotal > 0
+                ? computedTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })
+                : '—'}
+            </Text>
+          </div>
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Валюта
+          </Text>
+          <div>
+            {hasMixedCurrencies ? (
+              <Tag color="error">Смешанные валюты!</Tag>
+            ) : detectedCurrency ? (
+              <Tag color={detectedCurrency === 'CNY' ? 'orange' : detectedCurrency === 'USD' ? 'blue' : 'purple'}>
+                {detectedCurrency}
+              </Tag>
+            ) : (
+              <Text type="secondary">—</Text>
+            )}
+          </div>
+        </div>
+      </div>
+
       <Form
         form={form}
         layout="vertical"
         onFinish={handleSave}
         initialValues={{ priority: 'normal' }}
       >
-        <Form.Item
-          name="total_amount"
-          label="Итоговая сумма"
-          rules={[{ required: true, message: 'Укажите сумму' }]}
-        >
-          <InputNumber min={0.01} style={{ width: '100%' }} />
-        </Form.Item>
-        <Form.Item
-          name="currency"
-          label="Валюта"
-          rules={[{ required: true, message: 'Выберите валюту' }]}
-        >
-          <Select
-            options={[
-              { value: 'CNY', label: 'CNY (юань)' },
-              { value: 'USD', label: 'USD (доллар)' },
-              { value: 'RUB', label: 'RUB (рубль)' },
-            ]}
-          />
-        </Form.Item>
         <Form.Item name="priority" label="Приоритет">
           <Select
             options={[
@@ -247,9 +342,7 @@ export default function PaymentRequestFormModal({
         <Form.Item name="payment_details" label="Детали платежа">
           <Input.TextArea rows={2} />
         </Form.Item>
-        <Form.Item
-          label={`Вложения (до 3 файлов, максимум 10 МБ каждый)`}
-        >
+        <Form.Item label="Вложения (до 3 файлов, максимум 10 МБ каждый)">
           <Upload
             beforeUpload={(file: RcFile) => {
               if (!isFileSizeValid(file)) return Upload.LIST_IGNORE;

@@ -11,7 +11,7 @@ import {
   theme,
   message,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EyeOutlined, DollarOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listPaymentRequests, deletePaymentRequest } from '../../api/paymentRequests';
 import { useAuth } from '../../contexts/AuthContext';
@@ -76,6 +76,7 @@ export default function PaymentRequestsPanel({ projectId }: Props) {
       await deletePaymentRequest(projectId, req.id);
       queryClient.invalidateQueries({ queryKey: ['payment-requests', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project-summary', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
       message.success('Заявка удалена');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } };
@@ -153,6 +154,16 @@ export default function PaymentRequestsPanel({ projectId }: Props) {
                 }
                 extra={
                   <div style={{ display: 'flex', gap: 4 }}>
+                    {!isCompleted && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<DollarOutlined />}
+                        onClick={() => setDetailId(req.id)}
+                      >
+                        Оплата
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       icon={<EyeOutlined />}
@@ -221,6 +232,7 @@ export default function PaymentRequestsPanel({ projectId }: Props) {
             setShowCreate(false);
             queryClient.invalidateQueries({ queryKey: ['payment-requests', projectId] });
             queryClient.invalidateQueries({ queryKey: ['project-summary', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
           }}
         />
       )}

@@ -227,30 +227,32 @@ async def get_project_summary(
     await _check_project_access(project, current_user)
 
     # Суммы по позициям номенклатуры (сгруппированные по валюте)
+    # total = price * quantity (без комиссии — именно столько выставляем клиенту)
+    # commission = price * commission% * quantity (считается отдельно, раз в 2-3 мес.)
+    # profit = (price - cost_price) * quantity
     items_query = select(
         ProjectItem.currency,
+        func.sum(ProjectItem.price * ProjectItem.quantity).label("total"),
         func.sum(
-            ProjectItem.price
-            * (1 + ProjectItem.commission / 100)
-            * ProjectItem.quantity
-        ).label("total"),
+            ProjectItem.price * (ProjectItem.commission / 100) * ProjectItem.quantity
+        ).label("commission"),
         func.sum(
-            (ProjectItem.price * (1 + ProjectItem.commission / 100) - ProjectItem.cost_price)
-            * ProjectItem.quantity
+            (ProjectItem.price - ProjectItem.cost_price) * ProjectItem.quantity
         ).label("profit"),
     ).where(ProjectItem.project_id == project_id).group_by(ProjectItem.currency)
 
     items_result = await db.execute(items_query)
     items_rows = items_result.all()
 
-    # Оплаченные суммы (сгруппированные по валюте платежа)
+    # Оплаченные суммы (только confirmed, сгруппированные по валюте платежа)
     paid_query = select(
         Payment.currency,
         func.sum(Payment.amount).label("paid"),
     ).join(
         PaymentRequest, Payment.payment_request_id == PaymentRequest.id
     ).where(
-        PaymentRequest.project_id == project_id
+        PaymentRequest.project_id == project_id,
+        Payment.status == "confirmed",
     ).group_by(Payment.currency)
 
     paid_result = await db.execute(paid_query)
@@ -263,6 +265,7 @@ async def get_project_summary(
     for row in items_rows:
         currency = row.currency
         total = Decimal(str(row.total)) if row.total else Decimal("0")
+        commission_val = Decimal(str(row.commission)) if row.commission else Decimal("0")
         profit_val = Decimal(str(row.profit)) if row.profit else Decimal("0")
         paid = paid_by_currency.get(currency, Decimal("0"))
         remaining = total - paid
@@ -272,6 +275,7 @@ async def get_project_summary(
             total=total,
             paid=paid,
             remaining=remaining,
+            commission=commission_val,  # видят все
             profit=profit_val if current_user.role == "admin" else None,
         )
         currencies.append(summary)

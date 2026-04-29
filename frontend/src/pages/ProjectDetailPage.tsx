@@ -214,16 +214,45 @@ export default function ProjectDetailPage() {
         {summary && summary.currencies.length > 0 && (
           <>
             {!isMobile && <Divider type="vertical" style={{ margin: 0 }} />}
-            {summary.currencies.map((s) => (
-              <Text key={s.currency} style={{ fontSize: 13 }}>
-                <Tag style={{ marginRight: 4 }}>{s.currency}</Tag>
-                Итого: <Text strong>{fmt(s.total, s.currency as Currency)}</Text>
-                <Text type="secondary"> · </Text>
-                <Text type={parseFloat(s.remaining) > 0 ? 'danger' : 'success'}>
-                  Остаток: {fmt(s.remaining, s.currency as Currency)}
-                </Text>
-              </Text>
-            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 16 }}>
+                {summary.currencies.map((s) => (
+                  <Text key={s.currency} style={{ fontSize: 13 }}>
+                    <Tag style={{ marginRight: 4 }}>{s.currency}</Tag>
+                    Итого: <Text strong>{fmt(s.total, s.currency as Currency)}</Text>
+                    <Text type="secondary"> · </Text>
+                    <Text type={parseFloat(s.remaining) > 0 ? 'danger' : 'success'}>
+                      Остаток: {fmt(s.remaining, s.currency as Currency)}
+                    </Text>
+                  </Text>
+                ))}
+              </div>
+              {summary.currencies.some(
+                (s) => s.commission != null || (isAdmin && s.profit != null),
+              ) && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 16 }}>
+                  {summary.currencies.map((s) => (
+                    <Text key={s.currency} type="secondary" style={{ fontSize: 12 }}>
+                      <Tag style={{ marginRight: 4, fontSize: 10 }}>{s.currency}</Tag>
+                      {s.commission != null && (
+                        <>Комиссия: {fmt(s.commission, s.currency as Currency)}</>
+                      )}
+                      {s.commission != null && isAdmin && s.profit != null && (
+                        <Text type="secondary"> · </Text>
+                      )}
+                      {isAdmin && s.profit != null && (
+                        <>
+                          Прибыль:{' '}
+                          <Text type="success" style={{ fontSize: 12 }}>
+                            {fmt(s.profit, s.currency as Currency)}
+                          </Text>
+                        </>
+                      )}
+                    </Text>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

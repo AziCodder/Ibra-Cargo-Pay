@@ -183,22 +183,11 @@ async def create_payment_request(
     project_name = project.name
     project_client_id = project.client_id
 
-    req = PaymentRequest(
-        project_id=project_id,
-        total_amount=data.total_amount,
-        currency=data.currency,
-        requisites=data.requisites,
-        payment_details=data.payment_details,
-        due_date=data.due_date,
-        priority=data.priority,
-        created_by=current_user.id,
-    )
-    db.add(req)
-    await db.flush()  # получаем req.id
+    # ── Предварительная валидация позиций ──────────────────────────────────────
 
-    item_names: list[str] = []
+    # Загружаем все позиции за один проход
+    item_objs: dict[int, ProjectItem] = {}
     for item_in in data.items:
-        # Проверяем, что позиция принадлежит проекту
         item_result = await db.execute(
             select(ProjectItem).where(
                 ProjectItem.id == item_in.project_item_id,
@@ -211,6 +200,60 @@ async def create_payment_request(
                 status_code=404,
                 detail=f"Позиция {item_in.project_item_id} не найдена в этом проекте",
             )
+        item_objs[item_in.project_item_id] = item_obj
+
+    # Все позиции должны быть одной валюты
+    currencies = {obj.currency for obj in item_objs.values()}
+    if len(currencies) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Все позиции в заявке должны иметь одинаковую валюту",
+        )
+
+    # Сумма по каждой позиции не должна превышать остаток (price×qty − уже выставлено)
+    for item_in in data.items:
+        item_obj = item_objs[item_in.project_item_id]
+        max_amount = item_obj.price * item_obj.quantity
+
+        invoiced_result = await db.execute(
+            select(func.coalesce(func.sum(PaymentRequestItem.amount), 0)).where(
+                PaymentRequestItem.project_item_id == item_in.project_item_id
+            )
+        )
+        already_invoiced = Decimal(str(invoiced_result.scalar_one()))
+        remaining = max_amount - already_invoiced
+
+        if Decimal(str(item_in.amount)) > remaining + Decimal("0.01"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Сумма по позиции «{item_obj.name}» ({item_in.amount}) "
+                    f"превышает допустимый остаток ({remaining:.2f})"
+                ),
+            )
+
+    # Пересчитываем total_amount из позиций (не доверяем клиенту)
+    computed_total = sum(Decimal(str(i.amount)) for i in data.items)
+    detected_currency = next(iter(currencies))
+
+    # ──────────────────────────────────────────────────────────────────────────
+
+    req = PaymentRequest(
+        project_id=project_id,
+        total_amount=computed_total,
+        currency=detected_currency,
+        requisites=data.requisites,
+        payment_details=data.payment_details,
+        due_date=data.due_date,
+        priority=data.priority,
+        created_by=current_user.id,
+    )
+    db.add(req)
+    await db.flush()  # получаем req.id
+
+    item_names: list[str] = []
+    for item_in in data.items:
+        item_obj = item_objs[item_in.project_item_id]
         item_names.append(item_obj.name)
         pri = PaymentRequestItem(
             payment_request_id=req.id,

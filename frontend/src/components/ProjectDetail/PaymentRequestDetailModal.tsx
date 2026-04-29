@@ -170,23 +170,50 @@ export default function PaymentRequestDetailModal({
 
   const handleCopyInfo = () => {
     if (!req) return;
-    const itemLines = req.items
-      .map((i) => `  ${i.project_item_name}: ${fmt(i.amount, req.currency)}`)
-      .join('\n');
-    const lines: string[] = [
-      `Заявка на оплату #${req.id}`,
-      '',
-      'Позиции:',
-      itemLines,
-      '',
-      `Итого: ${fmt(req.total_amount, req.currency)}`,
-    ];
-    if (req.requisites) lines.push(`Реквизиты: ${req.requisites}`);
-    if (req.payment_details) lines.push(`Детали платежа: ${req.payment_details}`);
 
-    navigator.clipboard.writeText(lines.join('\n')).then(() =>
-      message.success('Скопировано в буфер обмена'),
-    );
+    // Наименования позиций (каждое с новой строки)
+    const itemNames = req.items.map((i) => i.project_item_name).join('\n');
+
+    // Сумма числом без символа валюты (для вставки в банк)
+    const plainAmount = parseFloat(req.total_amount).toLocaleString('ru-RU', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+
+    const parts: string[] = [];
+    if (itemNames) parts.push(itemNames);
+    if (req.payment_details) parts.push(req.payment_details);
+    parts.push('');
+    parts.push(`Общая сумма - ${fmt(req.total_amount, req.currency)}`);
+    parts.push('');
+    if (req.requisites) parts.push(req.requisites);
+    parts.push(plainAmount);
+
+    const text = parts.join('\n');
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(
+        () => message.success('Скопировано в буфер обмена'),
+        () => {
+          // Fallback
+          const el = document.createElement('textarea');
+          el.value = text;
+          document.body.appendChild(el);
+          el.select();
+          document.execCommand('copy');
+          document.body.removeChild(el);
+          message.success('Скопировано в буфер обмена');
+        },
+      );
+    } else {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      message.success('Скопировано в буфер обмена');
+    }
   };
 
   // ── Удаление заявки ─────────────────────────────────────────────────────────
@@ -429,7 +456,7 @@ export default function PaymentRequestDetailModal({
       {actionButtons}
     </div>
   ) : (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 36 }}>
       <span style={{ whiteSpace: 'nowrap' }}>Заявка на оплату #{reqId}</span>
       {isCompleted && <Tag color="success">Оплачено</Tag>}
       <div style={{ marginLeft: 'auto' }}>{actionButtons}</div>
@@ -565,7 +592,7 @@ export default function PaymentRequestDetailModal({
           </Descriptions>
 
           {/* Позиции */}
-          <Divider style={{ margin: '12px 0' }}>Позиции</Divider>
+          <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>Позиции</Divider>
           <List
             size="small"
             dataSource={req.items}
@@ -584,7 +611,7 @@ export default function PaymentRequestDetailModal({
           {/* Вложения */}
           {(req.attachments.length > 0 || isAdmin) && (
             <>
-              <Divider style={{ margin: '12px 0' }}>
+              <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
                 Вложения ({req.attachments.length}/3)
               </Divider>
               {req.attachments.length === 0 ? (
@@ -639,7 +666,7 @@ export default function PaymentRequestDetailModal({
           )}
 
           {/* Платежи */}
-          <Divider style={{ margin: '12px 0' }}>
+          <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
             Платежи ({req.payments.length})
           </Divider>
           {req.payments.length === 0 ? (
@@ -847,7 +874,7 @@ export default function PaymentRequestDetailModal({
           )}
 
           {/* Комментарии */}
-          <Divider style={{ margin: '12px 0' }}>
+          <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
             Комментарии ({comments.length})
           </Divider>
           {comments.length === 0 ? (
