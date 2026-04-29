@@ -170,7 +170,8 @@ export default function DashboardPage() {
                 renderItem={(p) => (
                   <List.Item
                     key={p.id}
-                    style={{ padding: '10px 0', alignItems: 'flex-start' }}
+                    style={{ padding: '10px 0', alignItems: 'flex-start', cursor: 'pointer' }}
+                    onClick={() => navigate(`/projects/${p.project_id}`)}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
