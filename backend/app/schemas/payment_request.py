@@ -37,19 +37,11 @@ class PaymentRequestCreate(BaseModel):
 
 
 class PaymentRequestUpdate(BaseModel):
-    total_amount: Decimal | None = None
-    currency: str | None = None
+    items: list[PaymentRequestItemIn] | None = None
     requisites: str | None = None
     payment_details: str | None = None
     due_date: date | None = None
     priority: str | None = None
-
-    @field_validator("currency")
-    @classmethod
-    def validate_currency(cls, v: str | None) -> str | None:
-        if v is not None and v not in ("CNY", "USD", "RUB"):
-            raise ValueError("Валюта должна быть CNY, USD или RUB")
-        return v
 
     @field_validator("priority")
     @classmethod

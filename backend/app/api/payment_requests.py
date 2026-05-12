@@ -320,7 +320,56 @@ async def update_payment_request(
     req = await _load_request(req_id, project_id, db)
     before = audit_service.entity_snapshot(req)
 
-    update_fields = data.model_dump(exclude_unset=True)
+    # ── Обновление позиций и пересчёт суммы ─────────────────────────────────
+    if data.items is not None:
+        new_total = Decimal("0")
+        for item_in in data.items:
+            # Находим запись PaymentRequestItem для этой заявки
+            pri_result = await db.execute(
+                select(PaymentRequestItem).where(
+                    PaymentRequestItem.payment_request_id == req_id,
+                    PaymentRequestItem.project_item_id == item_in.project_item_id,
+                )
+            )
+            pri = pri_result.scalar_one_or_none()
+            if not pri:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Позиция {item_in.project_item_id} не найдена в этой заявке",
+                )
+
+            # Максимальная сумма по позиции проекта
+            item_obj = await db.get(ProjectItem, item_in.project_item_id)
+            if not item_obj:
+                raise HTTPException(status_code=404, detail="Позиция проекта не найдена")
+            max_amount = item_obj.price * item_obj.quantity
+
+            # Уже выставлено по другим заявкам (исключая текущую)
+            invoiced_result = await db.execute(
+                select(func.coalesce(func.sum(PaymentRequestItem.amount), 0)).where(
+                    PaymentRequestItem.project_item_id == item_in.project_item_id,
+                    PaymentRequestItem.payment_request_id != req_id,
+                )
+            )
+            already_invoiced = Decimal(str(invoiced_result.scalar_one()))
+            available = max_amount - already_invoiced
+
+            if Decimal(str(item_in.amount)) > available + Decimal("0.01"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Сумма по позиции «{item_obj.name}» ({item_in.amount}) "
+                        f"превышает допустимый остаток ({available:.2f})"
+                    ),
+                )
+
+            pri.amount = item_in.amount
+            new_total += Decimal(str(item_in.amount))
+
+        req.total_amount = new_total
+
+    # ── Обновление остальных полей ────────────────────────────────────────────
+    update_fields = data.model_dump(exclude_unset=True, exclude={"items"})
     for field, value in update_fields.items():
         setattr(req, field, value)
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   DatePicker,
@@ -14,6 +14,7 @@ import {
   Select,
   Space,
   Tag,
+  Table,
   Tooltip,
   Typography,
   Upload,
@@ -38,6 +39,7 @@ import {
   getPaymentRequest,
   updatePaymentRequest,
 } from '../../api/paymentRequests';
+import { listItems } from '../../api/projectItems';
 import {
   addPayment,
   confirmPayment,
@@ -115,6 +117,7 @@ export default function PaymentRequestDetailModal({
   const [editMode, setEditMode] = useState(false);
   const [editForm] = Form.useForm();
   const [editLoading, setEditLoading] = useState(false);
+  const [editItems, setEditItems] = useState<Record<number, number | null>>({});
   const [deletingAtt, setDeletingAtt] = useState<number | null>(null);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [addPaymentLoading, setAddPaymentLoading] = useState(false);
@@ -136,6 +139,12 @@ export default function PaymentRequestDetailModal({
     enabled: open,
   });
 
+  const { data: projectItems = [] } = useQuery({
+    queryKey: ['project-items', projectId],
+    queryFn: () => listItems(projectId),
+    enabled: editMode,
+  });
+
   const { data: comments = [] } = useQuery({
     queryKey: ['payment-request-comments', reqId],
     queryFn: () => listComments(reqId),
@@ -145,17 +154,36 @@ export default function PaymentRequestDetailModal({
   useEffect(() => {
     if (editMode && req) {
       editForm.setFieldsValue({
-        total_amount: parseFloat(req.total_amount),
-        currency: req.currency,
         requisites: req.requisites ?? '',
         payment_details: req.payment_details ?? '',
         priority: req.priority,
         due_date: req.due_date ? dayjs(req.due_date) : null,
       });
+      // Инициализируем суммы из текущих позиций заявки
+      const initial: Record<number, number | null> = {};
+      for (const item of req.items) {
+        initial[item.project_item_id] = parseFloat(item.amount);
+      }
+      setEditItems(initial);
     }
   }, [editMode, req, editForm]);
 
   const isCompleted = req ? parseFloat(req.remaining_amount) <= 0 : false;
+
+  // Вычисляем доступный остаток для каждой позиции в режиме редактирования.
+  // invoiced_amount включает ВСЕ заявки, включая текущую. Вычитаем текущую, чтобы получить остаток.
+  const getMaxForItem = useMemo(() => (projectItemId: number, originalAmount: number): number => {
+    const pi = projectItems.find((p) => p.id === projectItemId);
+    if (!pi) return Infinity;
+    const invoiced = parseFloat(pi.invoiced_amount ?? '0');
+    const maxTotal = parseFloat(String(pi.price)) * parseFloat(String(pi.quantity));
+    return Math.max(0, maxTotal - (invoiced - originalAmount));
+  }, [projectItems]);
+
+  const computedEditTotal = useMemo(() => {
+    if (!req) return 0;
+    return req.items.reduce((sum, item) => sum + (editItems[item.project_item_id] ?? 0), 0);
+  }, [req, editItems]);
 
   // ── Скачивание файла ────────────────────────────────────────────────────────
 
@@ -240,18 +268,36 @@ export default function PaymentRequestDetailModal({
   // ── Редактирование заявки ───────────────────────────────────────────────────
 
   const handleEdit = async (values: {
-    total_amount: number;
-    currency: Currency;
     requisites?: string;
     payment_details?: string;
     priority?: PaymentRequestPriority;
     due_date?: Dayjs | null;
   }) => {
+    if (!req) return;
+
+    // Валидируем суммы позиций
+    for (const item of req.items) {
+      const amount = editItems[item.project_item_id];
+      if (!amount || amount <= 0) {
+        message.error(`Укажите сумму по позиции «${item.project_item_name}»`);
+        return;
+      }
+      const maxAvail = getMaxForItem(item.project_item_id, parseFloat(item.amount));
+      if (amount > maxAvail + 0.005) {
+        message.error(
+          `Сумма по позиции «${item.project_item_name}» (${amount}) превышает допустимый остаток (${maxAvail.toFixed(2)})`,
+        );
+        return;
+      }
+    }
+
     setEditLoading(true);
     try {
       await updatePaymentRequest(projectId, reqId, {
-        total_amount: values.total_amount,
-        currency: values.currency,
+        items: req.items.map((item) => ({
+          project_item_id: item.project_item_id,
+          amount: editItems[item.project_item_id] ?? parseFloat(item.amount),
+        })),
         requisites: values.requisites || null,
         payment_details: values.payment_details || null,
         priority: values.priority ?? 'normal',
@@ -506,26 +552,90 @@ export default function PaymentRequestDetailModal({
       ) : editMode ? (
         // ── Режим редактирования ──────────────────────────────────────────────
         <Form form={editForm} layout="vertical" onFinish={handleEdit}>
-          <Form.Item
-            name="total_amount"
-            label="Итоговая сумма"
-            rules={[{ required: true, message: 'Укажите сумму' }]}
-          >
-            <InputNumber min={0.01} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item
-            name="currency"
-            label="Валюта"
-            rules={[{ required: true, message: 'Выберите валюту' }]}
-          >
-            <Select
-              options={[
-                { value: 'CNY', label: 'CNY (юань)' },
-                { value: 'USD', label: 'USD (доллар)' },
-                { value: 'RUB', label: 'RUB (рубль)' },
-              ]}
-            />
-          </Form.Item>
+          {/* Таблица позиций с редактируемыми суммами */}
+          {req && (
+            <>
+              <Table
+                size="small"
+                rowKey="project_item_id"
+                pagination={false}
+                style={{ marginBottom: 12 }}
+                dataSource={req.items}
+                columns={[
+                  {
+                    title: 'Позиция',
+                    dataIndex: 'project_item_name',
+                    key: 'name',
+                  },
+                  {
+                    title: 'Доступно',
+                    key: 'max',
+                    width: 110,
+                    render: (_: unknown, item: { project_item_id: number; amount: string }) => {
+                      const max = getMaxForItem(item.project_item_id, parseFloat(item.amount));
+                      return (
+                        <Text type={max <= 0 ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>
+                          {isFinite(max) ? max.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) : '—'}
+                        </Text>
+                      );
+                    },
+                  },
+                  {
+                    title: 'Сумма',
+                    key: 'amount',
+                    width: 150,
+                    render: (_: unknown, item: { project_item_id: number; amount: string }) => {
+                      const max = getMaxForItem(item.project_item_id, parseFloat(item.amount));
+                      const val = editItems[item.project_item_id];
+                      const exceeds = val !== null && val !== undefined && val > max + 0.005;
+                      return (
+                        <InputNumber
+                          min={0.01}
+                          max={isFinite(max) && max > 0 ? max : undefined}
+                          value={val ?? undefined}
+                          onChange={(v) => setEditItems((prev) => ({ ...prev, [item.project_item_id]: v }))}
+                          style={{ width: '100%' }}
+                          status={exceeds ? 'error' : undefined}
+                        />
+                      );
+                    },
+                  },
+                ]}
+              />
+              {/* Итог (только чтение, вычисляется автоматически) */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 16,
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  marginBottom: 16,
+                  background: 'rgba(255,255,255,0.04)',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Итоговая сумма</Text>
+                  <div>
+                    <Text strong style={{ fontSize: 16 }}>
+                      {computedEditTotal > 0
+                        ? computedEditTotal.toLocaleString('ru-RU', { minimumFractionDigits: 2 })
+                        : '—'}
+                    </Text>
+                  </div>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Валюта</Text>
+                  <div>
+                    <Tag color={req.currency === 'CNY' ? 'orange' : req.currency === 'USD' ? 'blue' : 'purple'}>
+                      {req.currency}
+                    </Tag>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
           <Form.Item name="priority" label="Приоритет">
             <Select
               options={[

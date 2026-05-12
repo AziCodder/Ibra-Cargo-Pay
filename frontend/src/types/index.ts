@@ -219,8 +219,7 @@ export interface PaymentRequestCreate {
 }
 
 export interface PaymentRequestUpdate {
-  total_amount?: number;
-  currency?: Currency;
+  items?: PaymentRequestItemIn[];
   requisites?: string | null;
   payment_details?: string | null;
   due_date?: string | null;
