@@ -11,10 +11,9 @@ import {
   theme,
   message,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listPaymentRequests, deletePaymentRequest } from '../../api/paymentRequests';
-import { downloadAllProjectPaymentsZip } from '../../api/payments';
 import { useAuth } from '../../contexts/AuthContext';
 import PaymentRequestFormModal from './PaymentRequestFormModal';
 import PaymentRequestDetailModal from './PaymentRequestDetailModal';
@@ -86,16 +85,6 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
     }
   };
 
-  const handleDownloadAllPayments = async () => {
-    try {
-      await downloadAllProjectPaymentsZip(projectId);
-      message.success('Архив скачан');
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Ошибка скачивания архива');
-    }
-  };
-
   return (
     <div style={{ padding: '16px' }}>
       <div
@@ -109,27 +98,16 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
         <Text strong style={{ fontSize: 15 }}>
           Заявки на оплату
         </Text>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {requests.length > 0 && (
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={handleDownloadAllPayments}
-            >
-              Скачать архив
-            </Button>
-          )}
-          {isAdmin && (
-            <Button
-              size="small"
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setShowCreate(true)}
-            >
-              Создать заявку
-            </Button>
-          )}
-        </div>
+        {isAdmin && (
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setShowCreate(true)}
+          >
+            Создать заявку
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
