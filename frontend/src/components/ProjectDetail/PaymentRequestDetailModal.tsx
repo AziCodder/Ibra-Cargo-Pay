@@ -474,17 +474,6 @@ export default function PaymentRequestDetailModal({
           {isMobile ? null : 'Копировать'}
         </Button>
       </Tooltip>
-      {hasPaymentFiles && (
-        <Tooltip title="Скачать все файлы оплат архивом">
-          <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            onClick={handleDownloadZip}
-          >
-            {isMobile ? null : 'Архив'}
-          </Button>
-        </Tooltip>
-      )}
       {isAdmin && !editMode && (
         <>
           <Tooltip title="Редактировать">
@@ -800,7 +789,14 @@ export default function PaymentRequestDetailModal({
 
           {/* Платежи */}
           <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
-            Платежи ({req.payments.length})
+            <Space size={8}>
+              <span>Платежи ({req.payments.length})</span>
+              {hasPaymentFiles && (
+                <Button size="small" icon={<DownloadOutlined />} onClick={handleDownloadZip}>
+                  Скачать архив
+                </Button>
+              )}
+            </Space>
           </Divider>
           {req.payments.length === 0 ? (
             <Text type="secondary" style={{ fontSize: 13 }}>
