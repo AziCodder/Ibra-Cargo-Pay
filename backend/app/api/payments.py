@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 MAX_PAYMENT_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
 
 router = APIRouter(prefix="/api/payment-requests/{req_id}/payments", tags=["payments"])
+router_project = APIRouter(prefix="/api/projects/{project_id}/payments", tags=["payments"])
 
 
 async def _get_request_with_access(
@@ -78,6 +79,59 @@ async def _get_client_chat_id(project_id: int, db: AsyncSession) -> int | None:
     )
     row = result.first()
     return row[0] if row else None
+
+
+@router_project.get("/download-all-zip")
+async def download_all_project_payments_zip(
+    project_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Скачать все файлы платежей по всем заявкам проекта в одном ZIP-архиве."""
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    if current_user.role == "client" and project.client_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
+
+    result = await db.execute(
+        select(Payment)
+        .join(PaymentRequest, Payment.payment_request_id == PaymentRequest.id)
+        .where(PaymentRequest.project_id == project_id, Payment.file_path.isnot(None))
+        .order_by(Payment.created_at.asc())
+    )
+    payments_with_files = result.scalars().all()
+
+    if not payments_with_files:
+        raise HTTPException(status_code=404, detail="Нет файлов для скачивания")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        seen_names: dict[str, int] = {}
+        for pay in payments_with_files:
+            file_bytes = await file_service.download_file_bytes(pay.file_path)
+            if file_bytes is None:
+                continue
+            base_name = pay.file_name or f"payment_{pay.id}"
+            if base_name in seen_names:
+                seen_names[base_name] += 1
+                dot = base_name.rfind(".")
+                if dot > 0:
+                    name_in_zip = f"{base_name[:dot]}_{seen_names[base_name]}{base_name[dot:]}"
+                else:
+                    name_in_zip = f"{base_name}_{seen_names[base_name]}"
+            else:
+                seen_names[base_name] = 0
+                name_in_zip = base_name
+            zf.writestr(name_in_zip, file_bytes)
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="payments_project_{project_id}.zip"'},
+    )
 
 
 @router.get("/download-zip")

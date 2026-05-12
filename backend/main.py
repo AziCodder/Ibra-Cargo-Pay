@@ -14,7 +14,7 @@ from app.api.files import router as files_router
 from app.api.payment_request_attachments import router as attachments_router
 from app.api.payment_request_comments import router as comments_router
 from app.api.payment_requests import router as payment_requests_router
-from app.api.payments import router as payments_router
+from app.api.payments import router as payments_router, router_project as payments_project_router
 from app.api.project_item_requirements import router as requirements_router
 from app.api.project_items import router as project_items_router
 from app.api.projects import router as projects_router
@@ -69,6 +69,7 @@ app.include_router(requirements_router)
 app.include_router(payment_requests_router)
 app.include_router(attachments_router)
 app.include_router(payments_router)
+app.include_router(payments_project_router)
 app.include_router(comments_router)
 app.include_router(audit_router)
 app.include_router(dashboard_router)
