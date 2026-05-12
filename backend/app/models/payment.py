@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -43,6 +44,7 @@ class Payment(Base):
     file_path: Mapped[str | None] = mapped_column(String(500))
     file_name: Mapped[str | None] = mapped_column(String(255))
     note: Mapped[str | None] = mapped_column(Text)
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Статус подтверждения: pending (ожидает), confirmed (подтверждён), rejected (отклонён)
     status: Mapped[str] = mapped_column(
         String(10), nullable=False, default="pending", server_default="confirmed"

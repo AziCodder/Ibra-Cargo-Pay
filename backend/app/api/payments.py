@@ -14,7 +14,7 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
@@ -150,6 +150,7 @@ async def add_payment(
     amount: Decimal = Form(...),
     currency: str = Form(...),
     note: str | None = Form(None),
+    payment_date: date | None = Form(None),
     file: UploadFile | None = File(None),
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -217,6 +218,7 @@ async def add_payment(
         amount=amount,
         currency=currency,
         note=note,
+        payment_date=payment_date,
         file_path=file_path_val,
         file_name=file_name_val,
         status=new_status,

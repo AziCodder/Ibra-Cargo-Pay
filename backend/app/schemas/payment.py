@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -30,6 +30,7 @@ class PaymentOut(BaseModel):
     amount: Decimal
     currency: str
     note: str | None = None
+    payment_date: date | None = None
     file_path: str | None = None
     file_name: str | None = None
     status: PaymentStatus = "pending"

@@ -246,6 +246,7 @@ export interface PaymentShort {
   amount: string;
   currency: Currency;
   note?: string | null;
+  payment_date?: string | null;
   file_path?: string | null;
   file_name?: string | null;
   status: PaymentStatus;
@@ -294,6 +295,7 @@ export interface Payment {
   amount: string;
   currency: Currency;
   note?: string | null;
+  payment_date?: string | null;
   file_path?: string | null;
   file_name?: string | null;
   status: PaymentStatus;

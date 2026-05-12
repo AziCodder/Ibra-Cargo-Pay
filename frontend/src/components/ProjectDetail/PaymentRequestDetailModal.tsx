@@ -120,6 +120,7 @@ export default function PaymentRequestDetailModal({
   const [addPaymentLoading, setAddPaymentLoading] = useState(false);
   const [addPaymentForm] = Form.useForm();
   const [paymentFile, setPaymentFile] = useState<UploadFile[]>([]);
+  const [paymentDate, setPaymentDate] = useState<Dayjs | null>(null);
   const [deletingPay, setDeletingPay] = useState<number | null>(null);
   const [confirmingPay, setConfirmingPay] = useState<number | null>(null);
   const [rejectingPay, setRejectingPay] = useState<number | null>(null);
@@ -328,12 +329,14 @@ export default function PaymentRequestDetailModal({
         amount: values.amount,
         currency: values.currency,
         note: values.note || null,
+        payment_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : null,
         file,
       });
       queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
       onChanged();
       addPaymentForm.resetFields();
       setPaymentFile([]);
+      setPaymentDate(null);
       setAddPaymentOpen(false);
       if (created.status === 'pending') {
         message.success('Платёж отправлен на подтверждение');
@@ -490,6 +493,7 @@ export default function PaymentRequestDetailModal({
         setAddPaymentOpen(false);
         addPaymentForm.resetFields();
         setPaymentFile([]);
+        setPaymentDate(null);
         onClose();
       }}
       footer={null}
@@ -784,6 +788,19 @@ export default function PaymentRequestDetailModal({
                           {new Date(pay.created_at).toLocaleDateString('ru-RU')}
                         </Text>
                       </Space>
+                      {pay.payment_date ? (
+                        <div style={{ marginTop: 2 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            Дата оплаты: {dayjs(pay.payment_date).format('DD.MM.YYYY')}
+                          </Text>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 2 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            Дата оплаты не указана
+                          </Text>
+                        </div>
+                      )}
                       {pay.status === 'rejected' && pay.rejection_reason && (
                         <div style={{ marginTop: 4 }}>
                           <Text type="danger" style={{ fontSize: 12 }}>
@@ -830,6 +847,16 @@ export default function PaymentRequestDetailModal({
                       <Input placeholder="Примечание (необязательно)" />
                     </Form.Item>
                   </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <DatePicker
+                      value={paymentDate}
+                      onChange={(d) => setPaymentDate(d)}
+                      format="DD.MM.YYYY"
+                      placeholder="Дата оплаты"
+                      style={{ width: '100%' }}
+                      allowClear
+                    />
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <Upload
                       showUploadList={false}
@@ -870,6 +897,7 @@ export default function PaymentRequestDetailModal({
                       onClick={() => {
                         addPaymentForm.resetFields();
                         setPaymentFile([]);
+                        setPaymentDate(null);
                         setAddPaymentOpen(false);
                       }}
                     >

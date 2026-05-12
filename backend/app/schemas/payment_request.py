@@ -82,6 +82,7 @@ class PaymentShortOut(BaseModel):
     amount: Decimal
     currency: str
     note: str | None = None
+    payment_date: date | None = None
     file_path: str | None = None
     file_name: str | None = None
     status: str = "pending"

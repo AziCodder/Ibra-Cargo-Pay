@@ -8,12 +8,13 @@ export async function listPayments(reqId: number): Promise<Payment[]> {
 
 export async function addPayment(
   reqId: number,
-  data: { amount: number; currency: string; note?: string | null; file?: File | null },
+  data: { amount: number; currency: string; note?: string | null; payment_date?: string | null; file?: File | null },
 ): Promise<Payment> {
   const formData = new FormData();
   formData.append('amount', String(data.amount));
   formData.append('currency', data.currency);
   if (data.note) formData.append('note', data.note);
+  if (data.payment_date) formData.append('payment_date', data.payment_date);
   if (data.file) formData.append('file', data.file);
   const res = await client.post<Payment>(`/payment-requests/${reqId}/payments`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
