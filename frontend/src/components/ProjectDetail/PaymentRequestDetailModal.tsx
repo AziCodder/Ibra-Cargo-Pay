@@ -461,8 +461,6 @@ export default function PaymentRequestDetailModal({
 
   // ── Заголовок модального окна ───────────────────────────────────────────────
 
-  const hasPaymentFiles = req?.payments.some((p) => p.file_path);
-
   const actionButtons = (
     <Space size="small" wrap>
       <Tooltip title="Копировать">
@@ -791,12 +789,13 @@ export default function PaymentRequestDetailModal({
           <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
             <Space size={8}>
               <span>Платежи ({req.payments.length})</span>
-              {hasPaymentFiles && (
+              {req.payments.length > 0 && (
                 <Button size="small" icon={<DownloadOutlined />} onClick={handleDownloadZip}>
                   Скачать архив
                 </Button>
               )}
             </Space>
+
           </Divider>
           {req.payments.length === 0 ? (
             <Text type="secondary" style={{ fontSize: 13 }}>
