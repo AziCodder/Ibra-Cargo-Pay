@@ -137,6 +137,31 @@ async def delete_file(file_key: str) -> None:
         logger.exception("Ошибка удаления файла из S3: %s", file_key)
 
 
+async def download_file_bytes(file_key: str) -> bytes | None:
+    """Скачивает файл из S3 и возвращает байты. None если S3 не настроен или ошибка."""
+    from app.core.config import settings
+
+    if not _is_s3_configured():
+        return None
+
+    try:
+        import aioboto3
+        session = aioboto3.Session(
+            aws_access_key_id=settings.s3_access_key_id,
+            aws_secret_access_key=settings.s3_secret_access_key,
+            region_name=settings.s3_region,
+        )
+        async with session.client(
+            "s3", endpoint_url=settings.s3_endpoint_url, config=_s3_client_config()
+        ) as s3:
+            response = await s3.get_object(Bucket=settings.s3_bucket_name, Key=file_key)
+            body = await response["Body"].read()
+        return body
+    except Exception:
+        logger.exception("Ошибка скачивания файла из S3: %s", file_key)
+        return None
+
+
 async def get_presigned_url(file_key: str, expires_in: int = 3600) -> str | None:
     """Возвращает presigned URL для скачивания файла. None если S3 не настроен."""
     from app.core.config import settings

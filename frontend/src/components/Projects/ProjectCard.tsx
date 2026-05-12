@@ -26,7 +26,7 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
   return (
     <Card
       hoverable
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', width: '100%', height: '100%' }}
       onClick={() => navigate(`/projects/${project.id}`)}
       actions={
         onDelete || onEdit
@@ -71,22 +71,26 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
           : undefined
       }
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ flex: 1, marginRight: 8 }}>
-          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-            №{project.project_number}
-          </Text>
-          <Title level={5} style={{ margin: 0 }}>
-            {project.name}
-          </Title>
-        </div>
+      {/* Строка: номер и статус выровнены по центру */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          №{project.project_number}
+        </Text>
         <Tag
           color={STATUS_COLORS[project.status]}
-          style={{ alignSelf: 'flex-start', flexShrink: 0, marginTop: 2 }}
+          style={{ flexShrink: 0, margin: 0 }}
         >
           {STATUS_LABELS[project.status] ?? project.status}
         </Tag>
       </div>
+      {/* Название с обрезкой длинных строк */}
+      <Title
+        level={5}
+        style={{ margin: '0 0 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        title={project.name}
+      >
+        {project.name}
+      </Title>
       {project.description && (
         <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
           {project.description}

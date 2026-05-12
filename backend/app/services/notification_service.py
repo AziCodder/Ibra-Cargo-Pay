@@ -65,40 +65,57 @@ def notify_payment_request_created(
     total_amount: Decimal,
     currency: str,
     items_names: str,
+    payment_details: str | None = None,
+    requisites: str | None = None,
 ) -> None:
     """Уведомить клиента о создании заявки на оплату."""
     if not client_chat_id or not _configured():
         return
-    link = f"{settings.frontend_url}/projects/{project_id}"
-    # Экранируем пользовательские данные для HTML
+    req_link = f"{settings.frontend_url}/projects/{project_id}?req={req_id}"
+    proj_link = f"{settings.frontend_url}/projects/{project_id}"
     safe_name = html.escape(project_name)
     safe_items = html.escape(items_names)
     text = (
-        f"📋 <b>Новая заявка на оплату #{req_id}</b>\n"
-        f"Проект: {safe_name}\n"
+        f'📋 <b><a href="{req_link}">Новая заявка на оплату #{req_id}</a></b>\n'
+        f'Проект: <a href="{proj_link}">{safe_name}</a>\n'
         f"Позиции: {safe_items}\n"
         f"Сумма: {total_amount} {currency}\n"
-        f'<a href="{link}">Открыть проект</a>'
     )
+    if payment_details:
+        text += f"\nДетали: {html.escape(payment_details)}\n"
+    if requisites:
+        text += f"\nРеквизиты:\n{html.escape(requisites)}\n"
     _fire(client_chat_id, text)
 
 
 def notify_payment_added(
     admin_chat_ids: list[int],
     project_name: str,
+    project_id: int,
     req_id: int,
     amount: Decimal,
     currency: str,
+    item_names: str | None = None,
+    note: str | None = None,
+    file_url: str | None = None,
 ) -> None:
     """Уведомить всех admin-ов о добавлении платежа (админом)."""
     if not admin_chat_ids or not _configured():
         return
+    req_link = f"{settings.frontend_url}/projects/{project_id}?req={req_id}"
+    proj_link = f"{settings.frontend_url}/projects/{project_id}"
     safe_name = html.escape(project_name)
     text = (
-        f"💰 <b>Добавлен платёж по заявке #{req_id}</b>\n"
-        f"Проект: {safe_name}\n"
-        f"Сумма: {amount} {currency}"
+        f'💰 <b><a href="{req_link}">Добавлен платёж по заявке #{req_id}</a></b>\n'
+        f'Проект: <a href="{proj_link}">{safe_name}</a>\n'
     )
+    if item_names:
+        text += f"Позиции: {html.escape(item_names)}\n"
+    text += f"Сумма: {amount} {currency}\n"
+    if note:
+        text += f"Примечание: {html.escape(note)}\n"
+    if file_url:
+        text += f'<a href="{file_url}">Скачать файл</a>\n'
     for chat_id in admin_chat_ids:
         _fire(chat_id, text)
 
@@ -106,24 +123,35 @@ def notify_payment_added(
 def notify_payment_pending(
     admin_chat_ids: list[int],
     project_name: str,
+    project_id: int,
     req_id: int,
     amount: Decimal,
     currency: str,
     client_login: str,
+    item_names: str | None = None,
+    note: str | None = None,
+    file_url: str | None = None,
 ) -> None:
     """Клиент отправил платёж — уведомить админов о необходимости подтверждения."""
     if not admin_chat_ids or not _configured():
         return
+    req_link = f"{settings.frontend_url}/projects/{project_id}?req={req_id}"
+    proj_link = f"{settings.frontend_url}/projects/{project_id}"
     safe_name = html.escape(project_name)
     safe_login = html.escape(client_login)
     text = (
-        f"🔔 <b>Новый платёж ожидает подтверждения</b>\n"
-        f"Заявка: #{req_id}\n"
-        f"Проект: {safe_name}\n"
+        f'🔔 <b><a href="{req_link}">Новый платёж ожидает подтверждения</a></b>\n'
+        f'Проект: <a href="{proj_link}">{safe_name}</a>\n'
         f"Клиент: {safe_login}\n"
-        f"Сумма: {amount} {currency}\n"
-        f"Откройте заявку для подтверждения или отклонения."
     )
+    if item_names:
+        text += f"Позиции: {html.escape(item_names)}\n"
+    text += f"Сумма: {amount} {currency}\n"
+    if note:
+        text += f"Примечание: {html.escape(note)}\n"
+    if file_url:
+        text += f'<a href="{file_url}">Скачать файл</a>\n'
+    text += "Откройте заявку для подтверждения или отклонения."
     for chat_id in admin_chat_ids:
         _fire(chat_id, text)
 

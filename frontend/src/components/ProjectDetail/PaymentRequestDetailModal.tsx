@@ -42,6 +42,7 @@ import {
   addPayment,
   confirmPayment,
   deletePayment,
+  downloadPaymentsZip,
   rejectPayment,
 } from '../../api/payments';
 import { getFileDownloadUrl } from '../../api/files';
@@ -166,28 +167,33 @@ export default function PaymentRequestDetailModal({
     }
   };
 
+  // ── Скачивание ZIP архива оплат ─────────────────────────────────────────────
+
+  const handleDownloadZip = async () => {
+    try {
+      await downloadPaymentsZip(reqId);
+    } catch {
+      message.error('Не удалось скачать архив');
+    }
+  };
+
   // ── Копирование информации ──────────────────────────────────────────────────
 
   const handleCopyInfo = () => {
     if (!req) return;
 
-    // Наименования позиций (каждое с новой строки)
     const itemNames = req.items.map((i) => i.project_item_name).join('\n');
-
-    // Сумма числом без символа валюты (для вставки в банк)
-    const plainAmount = parseFloat(req.total_amount).toLocaleString('ru-RU', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    });
 
     const parts: string[] = [];
     if (itemNames) parts.push(itemNames);
     if (req.payment_details) parts.push(req.payment_details);
     parts.push('');
     parts.push(`Общая сумма - ${fmt(req.total_amount, req.currency)}`);
-    parts.push('');
-    if (req.requisites) parts.push(req.requisites);
-    parts.push(plainAmount);
+    if (req.requisites) {
+      parts.push('');
+      parts.push('Реквизиты:');
+      parts.push(req.requisites);
+    }
 
     const text = parts.join('\n');
 
@@ -406,6 +412,8 @@ export default function PaymentRequestDetailModal({
 
   // ── Заголовок модального окна ───────────────────────────────────────────────
 
+  const hasPaymentFiles = req?.payments.some((p) => p.file_path);
+
   const actionButtons = (
     <Space size="small" wrap>
       <Tooltip title="Копировать">
@@ -417,6 +425,17 @@ export default function PaymentRequestDetailModal({
           {isMobile ? null : 'Копировать'}
         </Button>
       </Tooltip>
+      {hasPaymentFiles && (
+        <Tooltip title="Скачать все файлы оплат архивом">
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadZip}
+          >
+            {isMobile ? null : 'Архив'}
+          </Button>
+        </Tooltip>
+      )}
       {isAdmin && !editMode && (
         <>
           <Tooltip title="Редактировать">

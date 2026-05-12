@@ -11,11 +11,14 @@ remaining_amount учитывает ТОЛЬКО confirmed платежи.
 
 from __future__ import annotations
 
+import io
 import logging
+import zipfile
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,7 +27,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
+from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
+from app.models.project_item import ProjectItem
 from app.models.user import User
 from app.schemas.payment import PaymentOut, PaymentReject
 from app.services import audit_service, file_service, notification_service
@@ -73,6 +78,53 @@ async def _get_client_chat_id(project_id: int, db: AsyncSession) -> int | None:
     )
     row = result.first()
     return row[0] if row else None
+
+
+@router.get("/download-zip")
+async def download_payments_zip(
+    req_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Скачать все файлы платежей в одном ZIP-архиве."""
+    await _get_request_with_access(req_id, current_user, db)
+
+    result = await db.execute(
+        select(Payment)
+        .where(Payment.payment_request_id == req_id, Payment.file_path.isnot(None))
+        .order_by(Payment.created_at.asc())
+    )
+    payments_with_files = result.scalars().all()
+
+    if not payments_with_files:
+        raise HTTPException(status_code=404, detail="Нет файлов для скачивания")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        seen_names: dict[str, int] = {}
+        for pay in payments_with_files:
+            file_bytes = await file_service.download_file_bytes(pay.file_path)
+            if file_bytes is None:
+                continue
+            base_name = pay.file_name or f"payment_{pay.id}"
+            if base_name in seen_names:
+                seen_names[base_name] += 1
+                dot = base_name.rfind(".")
+                if dot > 0:
+                    name_in_zip = f"{base_name[:dot]}_{seen_names[base_name]}{base_name[dot:]}"
+                else:
+                    name_in_zip = f"{base_name}_{seen_names[base_name]}"
+            else:
+                seen_names[base_name] = 0
+                name_in_zip = base_name
+            zf.writestr(name_in_zip, file_bytes)
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="payments_{req_id}.zip"'},
+    )
 
 
 @router.get("", response_model=list[PaymentOut])
@@ -190,30 +242,47 @@ async def add_payment(
     await db.commit()
     await db.refresh(payment)
 
+    # Получаем названия позиций заявки для уведомления
+    item_names_result = await db.execute(
+        select(ProjectItem.name)
+        .join(PaymentRequestItem, PaymentRequestItem.project_item_id == ProjectItem.id)
+        .where(PaymentRequestItem.payment_request_id == req_id)
+    )
+    item_names_str = ", ".join(row[0] for row in item_names_result.all())
+
+    # Presigned URL файла для уведомления (24 часа)
+    file_url_for_notify: str | None = None
+    if file_path_val:
+        file_url_for_notify = await file_service.get_presigned_url(file_path_val, expires_in=86400)
+
     # Уведомления
     if is_admin:
-        # Админ сам добавил — уведомляем других админов
         admin_chat_ids = await _get_admin_chat_ids(db)
         notification_service.notify_payment_added(
             admin_chat_ids=admin_chat_ids,
             project_name=project_name,
+            project_id=project_id,
             req_id=req_id,
             amount=payment.amount,
             currency=payment.currency,
+            item_names=item_names_str or None,
+            note=note,
+            file_url=file_url_for_notify,
         )
     else:
-        # Клиент добавил — админам уведомление о необходимости подтверждения
         admin_chat_ids = await _get_admin_chat_ids(db)
         notification_service.notify_payment_pending(
             admin_chat_ids=admin_chat_ids,
             project_name=project_name,
+            project_id=project_id,
             req_id=req_id,
             amount=payment.amount,
             currency=payment.currency,
             client_login=current_user.login,
+            item_names=item_names_str or None,
+            note=note,
+            file_url=file_url_for_notify,
         )
-        # project_id используется только в логах/уведомлениях клиента на будущее
-        _ = project_id
 
     return PaymentOut.model_validate(payment)
 

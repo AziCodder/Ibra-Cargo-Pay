@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
@@ -50,6 +50,8 @@ export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialReqId = searchParams.get('req') ? Number(searchParams.get('req')) : undefined;
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const { token } = useToken();
@@ -287,7 +289,7 @@ export default function ProjectDetailPage() {
                 label: 'Заявки на оплату',
                 children: (
                   <div style={{ background: token.colorBgLayout, minHeight: 200 }}>
-                    <PaymentRequestsPanel projectId={projectId} />
+                    <PaymentRequestsPanel projectId={projectId} initialReqId={initialReqId} />
                   </div>
                 ),
               },
@@ -351,7 +353,7 @@ export default function ProjectDetailPage() {
             background: token.colorBgLayout,
           }}
         >
-          <PaymentRequestsPanel projectId={projectId} />
+          <PaymentRequestsPanel projectId={projectId} initialReqId={initialReqId} />
         </div>
       </div>
 

@@ -57,14 +57,15 @@ const { useToken } = theme;
 
 interface Props {
   projectId: number;
+  initialReqId?: number;
 }
 
-export default function PaymentRequestsPanel({ projectId }: Props) {
+export default function PaymentRequestsPanel({ projectId, initialReqId }: Props) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const { token } = useToken();
   const [showCreate, setShowCreate] = useState(false);
-  const [detailId, setDetailId] = useState<number | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(initialReqId ?? null);
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['payment-requests', projectId],

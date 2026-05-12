@@ -103,7 +103,7 @@ export default function ProjectsPage() {
       ) : (
         <Row gutter={[16, 16]}>
           {data.items.map((project) => (
-            <Col key={project.id} xs={24} sm={12} lg={8} xl={6}>
+            <Col key={project.id} xs={24} sm={12} lg={8} xl={6} style={{ display: 'flex' }}>
               <ProjectCard
                 project={project}
                 onDelete={isAdmin ? handleDelete : undefined}

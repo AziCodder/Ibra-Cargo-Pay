@@ -283,9 +283,11 @@ async def create_payment_request(
         project_name=project_name,
         project_id=project_id,
         req_id=req_id_snapshot,
-        total_amount=data.total_amount,
-        currency=data.currency,
+        total_amount=computed_total,
+        currency=detected_currency,
         items_names=", ".join(item_names),
+        payment_details=data.payment_details,
+        requisites=data.requisites,
     )
 
     loaded = await _load_request(req_id_snapshot, project_id, db)

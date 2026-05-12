@@ -43,3 +43,17 @@ export async function rejectPayment(
   );
   return res.data;
 }
+
+export async function downloadPaymentsZip(reqId: number): Promise<void> {
+  const res = await client.get(`/payment-requests/${reqId}/payments/download-zip`, {
+    responseType: 'blob',
+  });
+  const url = window.URL.createObjectURL(new Blob([res.data as BlobPart]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `payments_${reqId}.zip`);
+  document.body.appendChild(link);
+  link.click();
+  link.parentNode?.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
