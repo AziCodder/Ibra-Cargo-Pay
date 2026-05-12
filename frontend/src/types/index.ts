@@ -144,6 +144,7 @@ export interface ProjectListOut {
 export interface CurrencySummary {
   currency: Currency;
   total: string;
+  invoiced: string;
   paid: string;
   remaining: string;
   commission?: string | null;
@@ -175,6 +176,7 @@ export interface ProjectItem {
   currency: Currency;
   commission: string;
   invoiced_amount: string; // сумма по PaymentRequestItem для этой позиции
+  paid_amount: string;     // фактически оплачено (confirmed payments, пропорционально)
   requirements: Requirement[];
   created_at: string;
 }

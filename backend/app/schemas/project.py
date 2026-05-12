@@ -62,10 +62,11 @@ class ProjectListOut(BaseModel):
 class CurrencySummary(BaseModel):
     currency: str
     total: Decimal
+    invoiced: Decimal = Decimal("0")   # выставлено счетов (сумма по заявкам)
     paid: Decimal
     remaining: Decimal
     commission: Decimal | None = None  # None для клиента
-    profit: Decimal | None = None  # None для клиента
+    profit: Decimal | None = None      # None для клиента
 
 
 class ProjectSummary(BaseModel):

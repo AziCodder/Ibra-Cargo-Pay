@@ -72,6 +72,7 @@ class ProjectItemClientOut(BaseModel):
     currency: str
     commission: Decimal
     invoiced_amount: Decimal = Decimal("0")  # сумма по PaymentRequestItem для этой позиции
+    paid_amount: Decimal = Decimal("0")       # фактически оплачено (confirmed payments, пропорционально)
     requirements: list[RequirementOut] = []
     created_at: datetime
     updated_at: datetime

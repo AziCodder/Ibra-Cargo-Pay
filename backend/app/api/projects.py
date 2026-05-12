@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
+from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
 from app.models.project_item import ProjectItem
 from app.schemas.project import (
@@ -261,6 +262,21 @@ async def get_project_summary(
         row.currency: Decimal(str(row.paid)) for row in paid_rows
     }
 
+    # Выставлено счетов (сумма по заявкам на оплату), сгруппированная по валюте заявки
+    invoiced_query = (
+        select(
+            PaymentRequest.currency,
+            func.coalesce(func.sum(PaymentRequestItem.amount), 0).label("invoiced"),
+        )
+        .join(PaymentRequestItem, PaymentRequestItem.payment_request_id == PaymentRequest.id)
+        .where(PaymentRequest.project_id == project_id)
+        .group_by(PaymentRequest.currency)
+    )
+    invoiced_result = await db.execute(invoiced_query)
+    invoiced_by_currency: dict[str, Decimal] = {
+        row.currency: Decimal(str(row.invoiced)) for row in invoiced_result.all()
+    }
+
     currencies: list[CurrencySummary] = []
     for row in items_rows:
         currency = row.currency
@@ -268,11 +284,13 @@ async def get_project_summary(
         commission_val = Decimal(str(row.commission)) if row.commission else Decimal("0")
         profit_val = Decimal(str(row.profit)) if row.profit else Decimal("0")
         paid = paid_by_currency.get(currency, Decimal("0"))
+        invoiced = invoiced_by_currency.get(currency, Decimal("0"))
         remaining = total - paid
 
         summary = CurrencySummary(
             currency=currency,
             total=total,
+            invoiced=invoiced,
             paid=paid,
             remaining=remaining,
             commission=commission_val,  # видят все

@@ -22,7 +22,7 @@ import {
 } from 'antd';
 import type { UploadFile } from 'antd';
 import type { RcFile } from 'antd/es/upload';
-import { isFileSizeValid } from '../../utils/file';
+import { isPaymentFileSizeValid } from '../../utils/file';
 import {
   CopyOutlined,
   DeleteOutlined,
@@ -971,7 +971,7 @@ export default function PaymentRequestDetailModal({
                     <Upload
                       showUploadList={false}
                       beforeUpload={(file: RcFile) => {
-                        if (!isFileSizeValid(file)) return Upload.LIST_IGNORE;
+                        if (!isPaymentFileSizeValid(file)) return Upload.LIST_IGNORE;
                         return false;
                       }}
                       fileList={paymentFile}

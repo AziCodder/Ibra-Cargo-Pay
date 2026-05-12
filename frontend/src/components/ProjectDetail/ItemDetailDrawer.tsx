@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   Button,
   Descriptions,
+  Divider,
   Drawer,
   Input,
   List,
@@ -82,9 +83,12 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
   const commission = parseFloat(item.commission);
   const costPrice = item.cost_price ? parseFloat(item.cost_price) : null;
   const effectivePrice = price * (1 + commission / 100);
-  const totalAmount = price * quantity;                          // цена × кол-во (без комиссии)
+  const totalAmount = price * quantity;
   const invoicedAmount = parseFloat(item.invoiced_amount ?? '0');
-  const remainingAmount = totalAmount - invoicedAmount;
+  const paidAmount = parseFloat(item.paid_amount ?? '0');
+  const invoicedRemaining = invoicedAmount - paidAmount;      // выставлено, но не оплачено
+  const notInvoiced = totalAmount - invoicedAmount;           // ещё не выставлено
+  const totalRemaining = totalAmount - paidAmount;            // общий остаток
   const commissionAmount = price * quantity * (commission / 100);
   const profitAmount = costPrice !== null ? (price - costPrice) * quantity : null;
 
@@ -119,10 +123,14 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
         }
         width="min(480px, 92vw)"
       >
-        <Descriptions column={1} size="small" bordered>
-          {item.details && (
+        {item.details && (
+          <Descriptions column={1} size="small" bordered style={{ marginBottom: 12 }}>
             <Descriptions.Item label="Описание">{item.details}</Descriptions.Item>
-          )}
+          </Descriptions>
+        )}
+
+        {/* ── Основные характеристики + финансы ── */}
+        <Descriptions column={1} size="small" bordered>
           <Descriptions.Item label="Количество">
             {parseFloat(item.quantity).toLocaleString('ru-RU')}
           </Descriptions.Item>
@@ -135,70 +143,66 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
           <Descriptions.Item label="Цена">
             {price.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
           </Descriptions.Item>
-          <Descriptions.Item label="Комиссия">{commission}%</Descriptions.Item>
-          {isAdmin && (
-            <Descriptions.Item label="Эффективная цена">
-              <Text>
-                {effectivePrice.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
-              </Text>
-            </Descriptions.Item>
-          )}
           {isAdmin && costPrice !== null && (
             <Descriptions.Item label="Себестоимость">
               {costPrice.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
             </Descriptions.Item>
           )}
-
-          {/* ── Финансовые расчёты ── */}
           <Descriptions.Item label="Итого к оплате">
             <Text strong>
-              {totalAmount.toLocaleString('ru-RU', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
-              {currency}
+              {totalAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
             </Text>
           </Descriptions.Item>
           <Descriptions.Item label="Выставлено счетов">
             <Text>
-              {invoicedAmount.toLocaleString('ru-RU', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
-              {currency}
+              {invoicedAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
             </Text>
             {invoicedAmount === 0 && (
-              <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>
-                (заявок нет)
-              </Text>
+              <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>(заявок нет)</Text>
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="Остаток к оплате">
-            <Text strong type={remainingAmount > 0 ? 'danger' : 'success'}>
-              {remainingAmount.toLocaleString('ru-RU', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
-              {currency}
+          <Descriptions.Item label="Фактически оплачено">
+            <Text type={paidAmount > 0 ? undefined : 'secondary'}>
+              {paidAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
             </Text>
           </Descriptions.Item>
-          <Descriptions.Item label="Комиссия">
+          <Descriptions.Item label="Остаток по выставленным">
+            <Text type={invoicedRemaining > 0 ? 'warning' : 'success'}>
+              {invoicedRemaining.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
+            </Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Остаток к выставлению">
+            <Text type={notInvoiced > 0 ? 'secondary' : 'success'}>
+              {notInvoiced.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
+            </Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Общий остаток">
+            <Text strong type={totalRemaining > 0 ? 'danger' : 'success'}>
+              {totalRemaining.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
+            </Text>
+          </Descriptions.Item>
+        </Descriptions>
+
+        {/* ── Комиссия / прибыль ── */}
+        <Divider orientation="left" orientationMargin={0} style={{ margin: '16px 0 8px', fontSize: 12 }}>
+          Комиссия
+        </Divider>
+        <Descriptions column={1} size="small" bordered>
+          <Descriptions.Item label="Комиссия %">{commission}%</Descriptions.Item>
+          <Descriptions.Item label="Эффективная цена">
             <Text>
-              {commissionAmount.toLocaleString('ru-RU', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
-              {currency}
+              {effectivePrice.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
+            </Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="Комиссия (сумма)">
+            <Text>
+              {commissionAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
             </Text>
           </Descriptions.Item>
           {isAdmin && profitAmount !== null && (
             <Descriptions.Item label="Прибыль">
               <Text type="success" strong>
-                {profitAmount.toLocaleString('ru-RU', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                {currency}
+                {profitAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
               </Text>
             </Descriptions.Item>
           )}

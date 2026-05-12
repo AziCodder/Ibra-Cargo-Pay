@@ -11,7 +11,7 @@ import {
   theme,
   message,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined, EyeOutlined, DollarOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listPaymentRequests, deletePaymentRequest } from '../../api/paymentRequests';
 import { useAuth } from '../../contexts/AuthContext';
@@ -141,7 +141,11 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
               <Card
                 key={req.id}
                 size="small"
-                style={{ borderColor: isCompleted ? token.colorSuccess : undefined }}
+                style={{
+                  borderColor: isCompleted ? token.colorSuccess : undefined,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setDetailId(req.id)}
                 title={
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <Tag color={req.currency === 'CNY' ? 'orange' : req.currency === 'USD' ? 'blue' : 'purple'}>
@@ -154,22 +158,10 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
                   </div>
                 }
                 extra={
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {!isCompleted && (
-                      <Button
-                        size="small"
-                        type="primary"
-                        icon={<DollarOutlined />}
-                        onClick={() => setDetailId(req.id)}
-                      >
-                        Оплата
-                      </Button>
-                    )}
-                    <Button
-                      size="small"
-                      icon={<EyeOutlined />}
-                      onClick={() => setDetailId(req.id)}
-                    />
+                  <div
+                    style={{ display: 'flex', gap: 4 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {isAdmin && (
                       <Popconfirm
                         title="Удалить заявку?"
