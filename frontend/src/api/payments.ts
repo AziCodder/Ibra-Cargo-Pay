@@ -58,3 +58,17 @@ export async function downloadPaymentsZip(reqId: number): Promise<void> {
   link.parentNode?.removeChild(link);
   window.URL.revokeObjectURL(url);
 }
+
+export async function downloadAllProjectPaymentsZip(projectId: number): Promise<void> {
+  const res = await client.get(`/projects/${projectId}/payments/download-all-zip`, {
+    responseType: 'blob',
+  });
+  const url = window.URL.createObjectURL(new Blob([res.data as BlobPart]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `payments_project_${projectId}.zip`);
+  document.body.appendChild(link);
+  link.click();
+  link.parentNode?.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
