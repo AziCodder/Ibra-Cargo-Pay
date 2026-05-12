@@ -3,7 +3,6 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
-  Divider,
   Grid,
   Popconfirm,
   Space,
@@ -24,14 +23,11 @@ import {
   deleteProject,
   downloadProjectExport,
   getProject,
-  getProjectSummary,
 } from '../api/projects';
 import { useAuth } from '../contexts/AuthContext';
 import ItemsPanel from '../components/ProjectDetail/ItemsPanel';
 import PaymentRequestsPanel from '../components/ProjectDetail/PaymentRequestsPanel';
 import ProjectFormModal from '../components/Projects/ProjectFormModal';
-import type { Currency } from '../types';
-import { fmt } from '../utils/format';
 
 const { Text, Title } = Typography;
 const { useToken } = theme;
@@ -62,12 +58,6 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
-    enabled: !!projectId,
-  });
-
-  const { data: summary } = useQuery({
-    queryKey: ['project-summary', projectId],
-    queryFn: () => getProjectSummary(projectId),
     enabled: !!projectId,
   });
 
@@ -213,50 +203,6 @@ export default function ProjectDetailPage() {
           })}
         </Text>
 
-        {summary && summary.currencies.length > 0 && (
-          <>
-            {!isMobile && <Divider type="vertical" style={{ margin: 0 }} />}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 16 }}>
-                {summary.currencies.map((s) => (
-                  <Text key={s.currency} style={{ fontSize: 13 }}>
-                    <Tag style={{ marginRight: 4 }}>{s.currency}</Tag>
-                    Итого: <Text strong>{fmt(s.total, s.currency as Currency)}</Text>
-                    <Text type="secondary"> · </Text>
-                    <Text type={parseFloat(s.remaining) > 0 ? 'danger' : 'success'}>
-                      Остаток: {fmt(s.remaining, s.currency as Currency)}
-                    </Text>
-                  </Text>
-                ))}
-              </div>
-              {summary.currencies.some(
-                (s) => s.commission != null || (isAdmin && s.profit != null),
-              ) && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 8 : 16 }}>
-                  {summary.currencies.map((s) => (
-                    <Text key={s.currency} type="secondary" style={{ fontSize: 12 }}>
-                      <Tag style={{ marginRight: 4, fontSize: 10 }}>{s.currency}</Tag>
-                      {s.commission != null && (
-                        <>Комиссия: {fmt(s.commission, s.currency as Currency)}</>
-                      )}
-                      {s.commission != null && isAdmin && s.profit != null && (
-                        <Text type="secondary"> · </Text>
-                      )}
-                      {isAdmin && s.profit != null && (
-                        <>
-                          Прибыль:{' '}
-                          <Text type="success" style={{ fontSize: 12 }}>
-                            {fmt(s.profit, s.currency as Currency)}
-                          </Text>
-                        </>
-                      )}
-                    </Text>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
@@ -332,11 +278,11 @@ export default function ProjectDetailPage() {
       {header}
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Левая панель — номенклатура (40%) */}
+        {/* Левая панель — номенклатура (65%) */}
         <div
           style={{
-            width: '40%',
-            minWidth: 300,
+            width: '65%',
+            minWidth: 360,
             borderRight: `1px solid ${token.colorBorderSecondary}`,
             overflowY: 'auto',
             background: token.colorBgContainer,

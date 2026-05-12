@@ -36,7 +36,7 @@ from app.services import audit_service, file_service, notification_service
 
 logger = logging.getLogger(__name__)
 
-MAX_PAYMENT_FILE_SIZE = 10 * 1024 * 1024  # 10 МБ
+MAX_PAYMENT_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
 
 router = APIRouter(prefix="/api/payment-requests/{req_id}/payments", tags=["payments"])
 
@@ -193,7 +193,7 @@ async def add_payment(
         if len(file_bytes) > MAX_PAYMENT_FILE_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Файл слишком большой. Максимум 10 МБ",
+                detail="Файл слишком большой. Максимум 3 МБ",
             )
         try:
             file_path_val = await file_service.upload_file(

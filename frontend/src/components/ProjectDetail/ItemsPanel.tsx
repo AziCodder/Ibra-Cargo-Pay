@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import {
   Button,
+  Divider,
   Modal,
   Table,
   Typography,
   Spin,
   Empty,
-  Divider,
   List,
   Upload,
   Space,
   message,
   Popconfirm,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -32,43 +33,68 @@ import { getProjectSummary } from '../../api/projects';
 import { useAuth } from '../../contexts/AuthContext';
 import ItemFormModal from './ItemFormModal';
 import ItemDetailDrawer from './ItemDetailDrawer';
-import type { ProjectItem, CurrencySummary } from '../../types';
+import type { ProjectItem, CurrencySummary, Currency } from '../../types';
 import { fmt } from '../../utils/format';
 
 const { Text } = Typography;
 
+function fmtNum(v: string | number | undefined | null, decimals = 2): string {
+  const n = parseFloat(String(v ?? '0'));
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
 function SummaryRow({ summary, isAdmin }: { summary: CurrencySummary; isAdmin: boolean }) {
+  const total = parseFloat(summary.total);
+  const invoiced = parseFloat(summary.invoiced ?? '0');
+  const paid = parseFloat(summary.paid);
+  const remaining = total - paid;
+  const invoicedRemaining = invoiced - paid;
+  const notInvoiced = total - invoiced;
+  const currency = summary.currency as Currency;
+
   return (
-    <div style={{ padding: '4px 0' }}>
-      <div>
-        <Text strong style={{ marginRight: 8 }}>
-          {summary.currency}:
-        </Text>
-        <Text>Итого: {fmt(summary.total, summary.currency)}</Text>
-        <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
-        <Text>Оплачено: {fmt(summary.paid, summary.currency)}</Text>
-        <Text type="secondary" style={{ margin: '0 8px' }}>·</Text>
-        <Text type={parseFloat(summary.remaining) > 0 ? 'danger' : 'success'}>
-          Остаток: {fmt(summary.remaining, summary.currency)}
+    <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginBottom: 2 }}>
+        <Text strong style={{ marginRight: 4 }}>{summary.currency}:</Text>
+        <Text style={{ fontSize: 13 }}>Итого: <Text strong>{fmt(summary.total, currency)}</Text></Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
+        <Text style={{ fontSize: 13 }}>Выставлено: <Text>{fmt(String(invoiced), currency)}</Text></Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
+        <Text style={{ fontSize: 13 }}>Оплачено: <Text type={paid > 0 ? undefined : 'secondary'}>{fmt(String(paid), currency)}</Text></Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
+        <Text style={{ fontSize: 13 }}>
+          Общий остаток:{' '}
+          <Text type={remaining > 0 ? 'danger' : 'success'}>{fmt(String(remaining), currency)}</Text>
         </Text>
       </div>
-      {(summary.commission != null || (isAdmin && summary.profit != null)) && (
-        <div style={{ paddingLeft: 0, marginTop: 2 }}>
-          {summary.commission != null && (
-            <Text type="secondary" style={{ fontSize: 12, marginRight: 12 }}>
-              Комиссия: {fmt(summary.commission, summary.currency)}
-            </Text>
-          )}
-          {isAdmin && summary.profit != null && (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 16px', paddingLeft: 0 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Остаток по счетам: {fmtNum(invoicedRemaining)} {summary.currency}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          К выставлению: {fmtNum(notInvoiced)} {summary.currency}
+        </Text>
+        {summary.commission != null && (
+          <>
+            <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
+              Комиссия: {fmt(summary.commission, currency)}
+            </Text>
+          </>
+        )}
+        {isAdmin && summary.profit != null && (
+          <>
+            <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
+            <Text style={{ fontSize: 12 }}>
               Прибыль:{' '}
               <Text type="success" style={{ fontSize: 12 }}>
-                {fmt(summary.profit, summary.currency)}
+                {fmt(summary.profit, currency)}
               </Text>
             </Text>
-          )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -138,29 +164,84 @@ export default function ItemsPanel({ projectId }: Props) {
       title: 'Наименование',
       dataIndex: 'name',
       key: 'name',
+      ellipsis: { showTitle: false },
       render: (name: string, record: ProjectItem) => (
-        <Button
-          type="link"
-          style={{ padding: 0, height: 'auto', textAlign: 'left' }}
-          onClick={() => setSelectedItem(record)}
-        >
-          {name}
-        </Button>
+        <Tooltip title={name} placement="topLeft">
+          <Button
+            type="link"
+            style={{ padding: 0, height: 'auto', textAlign: 'left', maxWidth: '100%' }}
+            onClick={() => setSelectedItem(record)}
+          >
+            <span style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              display: 'block',
+              maxWidth: 180,
+            }}>
+              {name}
+            </span>
+          </Button>
+        </Tooltip>
       ),
     },
     {
       title: 'Кол-во',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 80,
+      width: 70,
       render: (v: string) => parseFloat(v).toLocaleString('ru-RU'),
+    },
+    {
+      title: 'Итого',
+      key: 'total',
+      width: 95,
+      render: (_: unknown, record: ProjectItem) => {
+        const total = parseFloat(record.price) * parseFloat(record.quantity);
+        return (
+          <Text style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+            {fmtNum(total)} {record.currency}
+          </Text>
+        );
+      },
+    },
+    {
+      title: 'Выставлено',
+      key: 'invoiced',
+      width: 95,
+      render: (_: unknown, record: ProjectItem) => {
+        const invoiced = parseFloat(record.invoiced_amount ?? '0');
+        return (
+          <Text style={{ fontSize: 12, whiteSpace: 'nowrap' }} type={invoiced > 0 ? undefined : 'secondary'}>
+            {fmtNum(invoiced)} {record.currency}
+          </Text>
+        );
+      },
+    },
+    {
+      title: 'Остаток',
+      key: 'remaining',
+      width: 95,
+      render: (_: unknown, record: ProjectItem) => {
+        const total = parseFloat(record.price) * parseFloat(record.quantity);
+        const paid = parseFloat(record.paid_amount ?? '0');
+        const remaining = total - paid;
+        return (
+          <Text
+            style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+            type={remaining > 0.005 ? 'danger' : 'success'}
+          >
+            {fmtNum(remaining)} {record.currency}
+          </Text>
+        );
+      },
     },
     ...(isAdmin
       ? [
           {
             title: '',
             key: 'actions',
-            width: 48,
+            width: 40,
             render: (_: unknown, record: ProjectItem) => (
               <Popconfirm
                 title="Удалить позицию?"
@@ -230,11 +311,11 @@ export default function ItemsPanel({ projectId }: Props) {
           columns={columns}
           dataSource={items}
           pagination={false}
-          scroll={{ x: 'max-content' }}
+          tableLayout="fixed"
         />
       )}
 
-      {/* Финансовые расчёты */}
+      {/* Финансовая сводка */}
       {summary && summary.currencies.length > 0 && (
         <>
           <Divider style={{ margin: '12px 0' }} />
