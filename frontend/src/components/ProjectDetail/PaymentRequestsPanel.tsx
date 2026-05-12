@@ -239,6 +239,7 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
           onChanged={() => {
             queryClient.invalidateQueries({ queryKey: ['payment-requests', projectId] });
             queryClient.invalidateQueries({ queryKey: ['project-summary', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
           }}
         />
       )}

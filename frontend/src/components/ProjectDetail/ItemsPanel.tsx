@@ -343,7 +343,7 @@ export default function ItemsPanel({ projectId }: Props) {
       {selectedItem && (
         <ItemDetailDrawer
           open={!!selectedItem}
-          item={selectedItem}
+          item={items.find((i) => i.id === selectedItem.id) ?? selectedItem}
           projectId={projectId}
           onClose={() => setSelectedItem(null)}
           onChanged={() => {
