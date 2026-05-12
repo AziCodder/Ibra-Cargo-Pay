@@ -134,44 +134,58 @@ async def download_all_project_payments_zip(
     )
 
 
+_STATUS_RU = {
+    "pending": "Ожидает подтверждения",
+    "confirmed": "Подтверждён",
+    "rejected": "Отклонён",
+}
+
+
+def _payment_info_txt(index: int, pay: Payment) -> str:
+    from datetime import timezone as _tz
+    lines = [
+        f"Платёж #{index}",
+        f"Сумма: {pay.amount} {pay.currency}",
+        f"Статус: {_STATUS_RU.get(pay.status, pay.status)}",
+        f"Дата создания: {pay.created_at.astimezone(_tz.utc).strftime('%d.%m.%Y')}",
+        f"Дата оплаты: {pay.payment_date.strftime('%d.%m.%Y') if pay.payment_date else 'не указана'}",
+        f"Примечание: {pay.note or '—'}",
+    ]
+    if pay.status == "rejected" and pay.rejection_reason:
+        lines.append(f"Причина отклонения: {pay.rejection_reason}")
+    return "\n".join(lines)
+
+
 @router.get("/download-zip")
 async def download_payments_zip(
     req_id: int,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Скачать все файлы платежей в одном ZIP-архиве."""
+    """Скачать все платежи в ZIP-архиве. Каждый платёж — отдельная папка с info.txt и файлом (если есть)."""
     await _get_request_with_access(req_id, current_user, db)
 
     result = await db.execute(
         select(Payment)
-        .where(Payment.payment_request_id == req_id, Payment.file_path.isnot(None))
+        .where(Payment.payment_request_id == req_id)
         .order_by(Payment.created_at.asc())
     )
-    payments_with_files = result.scalars().all()
+    payments = result.scalars().all()
 
-    if not payments_with_files:
-        raise HTTPException(status_code=404, detail="Нет файлов для скачивания")
+    if not payments:
+        raise HTTPException(status_code=404, detail="Нет платежей для скачивания")
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        seen_names: dict[str, int] = {}
-        for pay in payments_with_files:
-            file_bytes = await file_service.download_file_bytes(pay.file_path)
-            if file_bytes is None:
-                continue
-            base_name = pay.file_name or f"payment_{pay.id}"
-            if base_name in seen_names:
-                seen_names[base_name] += 1
-                dot = base_name.rfind(".")
-                if dot > 0:
-                    name_in_zip = f"{base_name[:dot]}_{seen_names[base_name]}{base_name[dot:]}"
-                else:
-                    name_in_zip = f"{base_name}_{seen_names[base_name]}"
-            else:
-                seen_names[base_name] = 0
-                name_in_zip = base_name
-            zf.writestr(name_in_zip, file_bytes)
+        for i, pay in enumerate(payments, start=1):
+            folder = f"payment_{i}"
+            info_text = _payment_info_txt(i, pay)
+            zf.writestr(f"{folder}/info.txt", info_text.encode("utf-8"))
+            if pay.file_path:
+                file_bytes = await file_service.download_file_bytes(pay.file_path)
+                if file_bytes is not None:
+                    file_name = pay.file_name or f"file_{pay.id}"
+                    zf.writestr(f"{folder}/{file_name}", file_bytes)
 
     zip_buffer.seek(0)
     return StreamingResponse(
