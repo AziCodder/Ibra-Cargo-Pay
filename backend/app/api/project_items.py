@@ -251,22 +251,6 @@ async def update_item(
 
     update_dict = data.model_dump(exclude_unset=True)
 
-    # Проверяем что новая price*qty не меньше уже выставленных счетов
-    if "price" in update_dict or "quantity" in update_dict:
-        new_price = Decimal(str(update_dict.get("price", item.price)))
-        new_qty = Decimal(str(update_dict.get("quantity", item.quantity)))
-        new_max = new_price * new_qty
-        invoiced_map = await _get_invoiced_map([item.id], db)
-        already_invoiced = invoiced_map.get(item.id, Decimal("0"))
-        if new_max < already_invoiced - Decimal("0.01"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Нельзя уменьшить позицию: по ней уже выставлено счетов на {already_invoiced:.2f}. "
-                    f"Новая максимальная сумма ({new_max:.2f}) не может быть меньше выставленных счетов."
-                ),
-            )
-
     for field, value in update_dict.items():
         setattr(item, field, value)
 
