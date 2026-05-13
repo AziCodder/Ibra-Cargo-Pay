@@ -82,9 +82,22 @@ def notify_payment_request_created(
         f"Сумма: {total_amount} {currency}\n"
     )
     if payment_details:
-        text += f"\nДетали: {html.escape(payment_details)}\n"
+        text += f"\nДетали по заявке: {html.escape(payment_details)}\n"
     if requisites:
         text += f"\nРеквизиты:\n{html.escape(requisites)}\n"
+
+    copy_parts = [items_names]
+    if payment_details:
+        copy_parts.append(payment_details)
+    copy_parts.append("")
+    copy_parts.append(f"Общая сумма: {total_amount} {currency}")
+    if requisites:
+        copy_parts.append("")
+        copy_parts.append("Реквизиты: ")
+        copy_parts.append(requisites)
+    copy_text = "\n".join(copy_parts)
+    text += f"\n<b>Копировать данные:</b>\n<pre>{html.escape(copy_text)}</pre>"
+
     _fire(client_chat_id, text)
 
 
