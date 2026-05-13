@@ -217,10 +217,10 @@ export default function PaymentRequestDetailModal({
     if (itemNames) parts.push(itemNames);
     if (req.payment_details) parts.push(req.payment_details);
     parts.push('');
-    parts.push(`Общая сумма - ${fmt(req.total_amount, req.currency)}`);
+    parts.push(`Общая сумма: ${fmt(req.total_amount, req.currency)}`);
     if (req.requisites) {
       parts.push('');
-      parts.push('Реквизиты:');
+      parts.push('Реквизиты: ');
       parts.push(req.requisites);
     }
 
