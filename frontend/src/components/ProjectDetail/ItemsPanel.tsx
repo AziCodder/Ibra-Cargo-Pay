@@ -164,6 +164,7 @@ export default function ItemsPanel({ projectId }: Props) {
       title: 'Наименование',
       dataIndex: 'name',
       key: 'name',
+      width: '32%',
       ellipsis: { showTitle: false },
       render: (name: string, record: ProjectItem) => (
         <Tooltip title={name} placement="topLeft">
@@ -177,7 +178,7 @@ export default function ItemsPanel({ projectId }: Props) {
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               display: 'block',
-              maxWidth: 180,
+              maxWidth: '100%',
             }}>
               {name}
             </span>
@@ -189,13 +190,15 @@ export default function ItemsPanel({ projectId }: Props) {
       title: 'Кол-во',
       dataIndex: 'quantity',
       key: 'quantity',
-      width: 70,
+      width: 80,
+      align: 'right' as const,
       render: (v: string) => parseFloat(v).toLocaleString('ru-RU'),
     },
     {
       title: 'Итого',
       key: 'total',
-      width: 95,
+      width: 140,
+      align: 'right' as const,
       render: (_: unknown, record: ProjectItem) => {
         const total = parseFloat(record.price) * parseFloat(record.quantity);
         return (
@@ -208,7 +211,8 @@ export default function ItemsPanel({ projectId }: Props) {
     {
       title: 'Выставлено',
       key: 'invoiced',
-      width: 95,
+      width: 140,
+      align: 'right' as const,
       render: (_: unknown, record: ProjectItem) => {
         const invoiced = parseFloat(record.invoiced_amount ?? '0');
         return (
@@ -221,7 +225,8 @@ export default function ItemsPanel({ projectId }: Props) {
     {
       title: 'Остаток',
       key: 'remaining',
-      width: 95,
+      width: 140,
+      align: 'right' as const,
       render: (_: unknown, record: ProjectItem) => {
         const total = parseFloat(record.price) * parseFloat(record.quantity);
         const paid = parseFloat(record.paid_amount ?? '0');
