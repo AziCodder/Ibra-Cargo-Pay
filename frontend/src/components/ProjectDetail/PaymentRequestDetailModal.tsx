@@ -804,7 +804,12 @@ export default function PaymentRequestDetailModal({
           ) : (
             <List
               size="small"
-              dataSource={req.payments}
+              dataSource={[...req.payments].sort((a, b) => {
+                if (!a.payment_date && !b.payment_date) return 0;
+                if (!a.payment_date) return 1;
+                if (!b.payment_date) return -1;
+                return dayjs(a.payment_date).valueOf() - dayjs(b.payment_date).valueOf();
+              })}
               renderItem={(pay) => {
                 const isOwner = pay.created_by === user?.id;
                 // admin может удалять любой; client только свои и только не confirmed
