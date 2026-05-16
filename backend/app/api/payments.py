@@ -243,6 +243,26 @@ async def add_payment(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Валюта платежа ({currency}) не совпадает с валютой заявки ({req.currency})",
         )
+
+    # Проверка переплаты: сумма нового платежа + все pending/confirmed платежи
+    # не должна превышать total_amount заявки.
+    existing_result = await db.execute(
+        select(Payment.amount).where(
+            Payment.payment_request_id == req_id,
+            Payment.status.in_(("pending", "confirmed")),
+        )
+    )
+    existing_total = sum((row[0] for row in existing_result.all()), Decimal("0"))
+    available = req.total_amount - existing_total
+    if amount > available:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Сумма платежа превышает остаток по заявке. "
+                f"Доступно: {available} {req.currency}"
+            ),
+        )
+
     # Читаем данные до commit
     project_name = req.project.name
     project_id = req.project_id
