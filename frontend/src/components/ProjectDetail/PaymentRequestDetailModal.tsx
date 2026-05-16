@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   DatePicker,
   Descriptions,
@@ -172,6 +173,34 @@ export default function PaymentRequestDetailModal({
   }, [editMode, req, editForm]);
 
   const isCompleted = req ? parseFloat(req.remaining_amount) <= 0 : false;
+
+  // Сумма уже существующих pending-платежей (confirmed уже вычтены из remaining_amount).
+  // Учитываем pending, чтобы клиент не мог суммарно создать платежей больше остатка.
+  const pendingPaymentsTotal = useMemo(() => {
+    if (!req) return 0;
+    return req.payments
+      .filter((p) => p.status === 'pending')
+      .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+  }, [req]);
+
+  // Доступный остаток для нового платежа (с учётом pending).
+  const availableForPayment = useMemo(() => {
+    if (!req) return 0;
+    return Math.max(0, parseFloat(req.remaining_amount) - pendingPaymentsTotal);
+  }, [req, pendingPaymentsTotal]);
+
+  // Текущее значение суммы и валюты из формы добавления платежа.
+  const watchedPaymentAmount = Form.useWatch('amount', addPaymentForm) as number | undefined;
+  const watchedPaymentCurrency = Form.useWatch('currency', addPaymentForm) as Currency | undefined;
+
+  // Переплата возможна только если валюта платежа совпадает с валютой заявки
+  // (иначе разные валюты — сравнивать без курса нельзя).
+  const isOverpaying = useMemo(() => {
+    if (!req || !addPaymentOpen) return false;
+    if (typeof watchedPaymentAmount !== 'number') return false;
+    if (watchedPaymentCurrency && watchedPaymentCurrency !== req.currency) return false;
+    return watchedPaymentAmount > availableForPayment + 0.005;
+  }, [req, addPaymentOpen, watchedPaymentAmount, watchedPaymentCurrency, availableForPayment]);
 
   // Вычисляем доступный остаток для каждой позиции в режиме редактирования.
   // invoiced_amount включает ВСЕ заявки, включая текущую. Вычитаем текущую, чтобы получить остаток.
@@ -371,6 +400,17 @@ export default function PaymentRequestDetailModal({
     currency: Currency;
     note?: string;
   }) => {
+    // Защита от переплаты на случай, если кнопка как-то была нажата.
+    if (
+      req &&
+      values.currency === req.currency &&
+      values.amount > availableForPayment + 0.005
+    ) {
+      message.error(
+        `Сумма платежа превышает остаток. Доступно: ${availableForPayment.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${req.currency}`,
+      );
+      return;
+    }
     setAddPaymentLoading(true);
     try {
       const file = paymentFile[0]?.originFileObj ?? null;
@@ -961,7 +1001,12 @@ export default function PaymentRequestDetailModal({
                       rules={[{ required: true, message: 'Укажите сумму' }]}
                       style={{ marginBottom: 8, flex: '0 0 140px' }}
                     >
-                      <InputNumber placeholder="Сумма" min={0.01} style={{ width: '100%' }} />
+                      <InputNumber
+                        placeholder="Сумма"
+                        min={0.01}
+                        style={{ width: '100%' }}
+                        status={isOverpaying ? 'error' : undefined}
+                      />
                     </Form.Item>
                     <Form.Item name="currency" style={{ marginBottom: 8, flex: '0 0 100px' }}>
                       <Select
@@ -1012,12 +1057,45 @@ export default function PaymentRequestDetailModal({
                       </Button>
                     )}
                   </div>
+                  {isOverpaying && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 8 }}
+                      message="Сумма больше остатка по заявке"
+                      description={
+                        <span>
+                          Возможно, в сумме допущена ошибка или это переплата. Доступно к оплате:{' '}
+                          <b>
+                            {availableForPayment.toLocaleString('ru-RU', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            {req.currency}
+                          </b>
+                          {pendingPaymentsTotal > 0 && (
+                            <>
+                              {' '}
+                              (с учётом платежей на подтверждении:{' '}
+                              {pendingPaymentsTotal.toLocaleString('ru-RU', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}{' '}
+                              {req.currency})
+                            </>
+                          )}
+                          .
+                        </span>
+                      }
+                    />
+                  )}
                   <Space>
                     <Button
                       type="primary"
                       size="small"
                       loading={addPaymentLoading}
                       onClick={() => addPaymentForm.submit()}
+                      disabled={isOverpaying}
                     >
                       Сохранить
                     </Button>
