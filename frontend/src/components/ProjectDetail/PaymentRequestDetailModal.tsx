@@ -30,6 +30,8 @@ import {
   EditOutlined,
   PaperClipOutlined,
   PlusOutlined,
+  SortAscendingOutlined,
+  SortDescendingOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -132,6 +134,7 @@ export default function PaymentRequestDetailModal({
   const [commentText, setCommentText] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
   const [deletingComment, setDeletingComment] = useState<number | null>(null);
+  const [paymentSortAsc, setPaymentSortAsc] = useState(true);
 
   const { data: req, isLoading } = useQuery({
     queryKey: ['payment-request-detail', reqId],
@@ -794,6 +797,21 @@ export default function PaymentRequestDetailModal({
                   Скачать архив
                 </Button>
               )}
+              {req.payments.length > 1 && (
+                <Tooltip
+                  title={
+                    paymentSortAsc
+                      ? 'Сортировка по дате оплаты: по возрастанию'
+                      : 'Сортировка по дате оплаты: по убыванию'
+                  }
+                >
+                  <Button
+                    size="small"
+                    icon={paymentSortAsc ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                    onClick={() => setPaymentSortAsc((v) => !v)}
+                  />
+                </Tooltip>
+              )}
             </Space>
 
           </Divider>
@@ -808,7 +826,8 @@ export default function PaymentRequestDetailModal({
                 if (!a.payment_date && !b.payment_date) return 0;
                 if (!a.payment_date) return 1;
                 if (!b.payment_date) return -1;
-                return dayjs(a.payment_date).valueOf() - dayjs(b.payment_date).valueOf();
+                const diff = dayjs(a.payment_date).valueOf() - dayjs(b.payment_date).valueOf();
+                return paymentSortAsc ? diff : -diff;
               })}
               renderItem={(pay) => {
                 const isOwner = pay.created_by === user?.id;
