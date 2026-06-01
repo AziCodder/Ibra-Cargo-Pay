@@ -45,16 +45,17 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8080:80"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
   bot:
     build:
@@ -78,6 +79,8 @@ services:
       TZ: Europe/Moscow
       BACKEND_URL: http://backend:8000
       BACKUP_TRIGGER_SECRET: ${BACKUP_TRIGGER_SECRET:-change-me-backup-secret}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_NOTIFY_CHAT_ID: "609253723"
     depends_on:
       backend:
         condition: service_healthy

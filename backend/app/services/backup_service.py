@@ -210,6 +210,45 @@ async def list_backups(limit: int = 100) -> list[dict]:
     return items[:limit]
 
 
+async def _send_backup_to_telegram(dump_bytes: bytes, key: str) -> None:
+    """Отправляет файл бэкапа в Telegram. Молча пропускает если не настроено."""
+    token = settings.telegram_bot_token
+    chat_id = settings.telegram_notify_chat_id
+    if not token or not chat_id:
+        return
+
+    import httpx
+
+    filename = key.split("/")[-1]
+    size_mb = len(dump_bytes) / 1048576
+    tg_url = f"https://api.telegram.org/bot{token}"
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            if len(dump_bytes) > 50 * 1024 * 1024:
+                # Файл > 50 МБ — Telegram не примет, шлём только уведомление
+                await client.post(f"{tg_url}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": (
+                        f"✅ <b>Бэкап БД выполнен</b>\n"
+                        f"📁 <code>{filename}</code>\n"
+                        f"💾 {size_mb:.2f} МБ (файл слишком большой для отправки в Telegram)"
+                    ),
+                    "parse_mode": "HTML",
+                })
+            else:
+                await client.post(f"{tg_url}/sendDocument", data={"chat_id": chat_id}, files={
+                    "document": (filename, dump_bytes, "application/octet-stream"),
+                    "caption": (
+                        None,
+                        f"✅ <b>Бэкап БД</b>\n📁 {filename}\n💾 {size_mb:.2f} МБ",
+                    ),
+                    "parse_mode": (None, "HTML"),
+                })
+    except Exception:
+        logger.exception("Не удалось отправить бэкап в Telegram")
+
+
 async def run_backup() -> dict:
     """
     Делает дамп БД и кладёт в S3. Возвращает метаданные.
@@ -236,6 +275,8 @@ async def run_backup() -> dict:
         deleted = await _apply_retention()
     except Exception:
         logger.exception("Ошибка retention (бэкап создан, но старые не удалены)")
+
+    await _send_backup_to_telegram(dump_bytes, key)
 
     finished = datetime.now(timezone.utc)
     return {

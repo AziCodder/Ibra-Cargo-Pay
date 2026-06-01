@@ -61,6 +61,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = ""
+    telegram_notify_chat_id: str = ""
     bot_secret: str = "change-me-bot-secret"  # переопределяется через BOT_SECRET в .env
 
     # Backups (отдельный bucket для дампов БД)
