@@ -35,9 +35,8 @@ async def _get_item_or_404(project_id: int, item_id: int, db: AsyncSession) -> P
 
 
 async def _check_access(item: ProjectItem, project_id: int, current_user, db: AsyncSession) -> None:
-    project = await db.get(Project, project_id)
-    if current_user.role == "client" and project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
+    """Доступ к проекту для любого авторизованного пользователя."""
+    return
 
 
 @router.get("", response_model=list[RequirementOut])

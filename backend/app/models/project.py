@@ -26,7 +26,7 @@ class Project(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    client_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(10), server_default="active", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -39,7 +39,7 @@ class Project(Base):
     )
 
     # Relationships
-    client: Mapped[User] = relationship(
+    client: Mapped[User | None] = relationship(
         "User", back_populates="projects", foreign_keys=[client_id]
     )
     items: Mapped[list[ProjectItem]] = relationship(

@@ -39,8 +39,8 @@ async def _get_project_or_404(project_id: int, db: AsyncSession) -> Project:
 
 
 async def _check_access(project: Project, current_user) -> None:
-    if current_user.role == "client" and project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
+    """Доступ к проекту для любого авторизованного пользователя."""
+    return
 
 
 def _serialize_item(

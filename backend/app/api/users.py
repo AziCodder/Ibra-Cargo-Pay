@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import require_admin
 from app.core.security import get_password_hash
-from app.models.project import Project
 from app.models.user import User
 from app.schemas.user import UserCreate, UserListOut, UserOut, UserUpdate
 from app.services import audit_service
@@ -145,16 +144,6 @@ async def delete_user(
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    # Проверка: нельзя удалить пользователя, у которого есть проекты
-    project_count = await db.execute(
-        select(func.count()).where(Project.client_id == user_id)
-    )
-    if project_count.scalar_one() > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Нельзя удалить пользователя: у него есть привязанные проекты",
-        )
 
     before = audit_service.entity_snapshot(user)
     user_id_snapshot = user.id

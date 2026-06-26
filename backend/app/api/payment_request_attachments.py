@@ -3,7 +3,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import require_admin
+from app.core.dependencies import get_current_user, require_admin
+from app.core.permissions import ensure_project_access
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_attachment import PaymentRequestAttachment
 from app.schemas.payment_request import AttachmentOut
@@ -38,9 +39,11 @@ async def upload_attachment(
     project_id: int,
     req_id: int,
     file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
     _admin=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentOut:
+    await ensure_project_access(project_id, current_user, db)
     await _get_request_or_404(req_id, project_id, db)
 
     count_result = await db.execute(
@@ -86,9 +89,11 @@ async def delete_attachment(
     project_id: int,
     req_id: int,
     att_id: int,
+    current_user=Depends(get_current_user),
     _admin=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    await ensure_project_access(project_id, current_user, db)
     await _get_request_or_404(req_id, project_id, db)
 
     result = await db.execute(

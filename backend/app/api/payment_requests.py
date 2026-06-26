@@ -38,8 +38,8 @@ async def _get_project_or_404(project_id: int, db: AsyncSession) -> Project:
 
 
 async def _check_access(project: Project, current_user) -> None:
-    if current_user.role == "client" and project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
+    """Доступ к проекту для любого авторизованного пользователя."""
+    return
 
 
 async def _compute_remaining(req_id: int, total_amount: Decimal, db: AsyncSession) -> Decimal:
@@ -179,9 +179,7 @@ async def create_payment_request(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _get_project_or_404(project_id, db)
-    # Читаем поля до commit, чтобы они не устарели после flush
     project_name = project.name
-    project_client_id = project.client_id
 
     # ── Предварительная валидация позиций ──────────────────────────────────────
 
@@ -276,10 +274,10 @@ async def create_payment_request(
 
     await db.commit()
 
-    # Уведомляем клиента (fire-and-forget)
-    client_user = await db.get(User, project_client_id)
+    # Уведомляем автора заявки (fire-and-forget)
+    creator = await db.get(User, current_user.id)
     notification_service.notify_payment_request_created(
-        client_chat_id=client_user.telegram_chat_id if client_user else None,
+        client_chat_id=creator.telegram_chat_id if creator else None,
         project_name=project_name,
         project_id=project_id,
         req_id=req_id_snapshot,

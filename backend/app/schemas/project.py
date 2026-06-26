@@ -7,7 +7,6 @@ from pydantic import BaseModel, field_validator
 class ProjectCreate(BaseModel):
     name: str
     description: str | None = None
-    client_id: int
     status: str = "active"
 
     @field_validator("status")
@@ -21,7 +20,6 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    client_id: int | None = None
     status: str | None = None
 
     @field_validator("status")
@@ -45,8 +43,8 @@ class ProjectOut(BaseModel):
     project_number: int
     name: str
     description: str | None = None
-    client_id: int
-    client: UserBrief
+    client_id: int | None = None
+    client: UserBrief | None = None
     status: str
     created_at: datetime
     updated_at: datetime

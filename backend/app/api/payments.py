@@ -54,10 +54,6 @@ async def _get_request_with_access(
     if not req:
         raise HTTPException(status_code=404, detail="Заявка на оплату не найдена")
 
-    project: Project = req.project
-    if current_user.role == "client" and project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
-
     return req
 
 
@@ -71,14 +67,9 @@ async def _get_admin_chat_ids(db: AsyncSession) -> list[int]:
     return [row[0] for row in result.all()]
 
 
-async def _get_client_chat_id(project_id: int, db: AsyncSession) -> int | None:
-    result = await db.execute(
-        select(User.telegram_chat_id)
-        .join(Project, Project.client_id == User.id)
-        .where(Project.id == project_id)
-    )
-    row = result.first()
-    return row[0] if row else None
+async def _get_creator_chat_id(user_id: int, db: AsyncSession) -> int | None:
+    user = await db.get(User, user_id)
+    return user.telegram_chat_id if user else None
 
 
 @router_project.get("/download-all-zip")
@@ -91,9 +82,6 @@ async def download_all_project_payments_zip(
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Проект не найден")
-
-    if current_user.role == "client" and project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этому проекту")
 
     result = await db.execute(
         select(Payment)
@@ -410,7 +398,7 @@ async def confirm_payment(
 
     # Данные для уведомления читаем до flush/commit
     project_name = req.project.name
-    client_chat_id = await _get_client_chat_id(req.project_id, db)
+    client_chat_id = await _get_creator_chat_id(payment.created_by, db)
     amount = payment.amount
     currency = payment.currency
 
@@ -475,7 +463,7 @@ async def reject_payment(
 
     # Данные для уведомления
     project_name = req.project.name
-    client_chat_id = await _get_client_chat_id(req.project_id, db)
+    client_chat_id = await _get_creator_chat_id(payment.created_by, db)
     amount = payment.amount
     currency = payment.currency
     reason_text = payment.rejection_reason

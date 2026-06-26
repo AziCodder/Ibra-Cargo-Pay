@@ -35,8 +35,6 @@ async def _load_request_and_check_access(
     req = (await db.execute(request_q)).scalar_one_or_none()
     if req is None:
         raise HTTPException(status_code=404, detail="Заявка на оплату не найдена")
-    if current_user.role == "client" and req.project.client_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Нет доступа к этой заявке")
     return req
 
 
