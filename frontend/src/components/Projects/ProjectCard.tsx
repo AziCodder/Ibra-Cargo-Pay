@@ -92,16 +92,10 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
         {project.name}
       </Title>
       {project.description && (
-        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+        <Text type="secondary" style={{ fontSize: 13, display: 'block' }}>
           {project.description}
         </Text>
       )}
-      <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-        Клиент: {project.client.full_name}
-      </Text>
-      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
-        Создан: {new Date(project.created_at).toLocaleDateString('ru-RU')}
-      </Text>
     </Card>
   );
 }

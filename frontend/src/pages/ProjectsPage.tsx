@@ -1,18 +1,28 @@
 import { useState } from 'react';
-import { Button, Radio, Spin, Empty, message, Row, Col } from 'antd';
+import { Button, Radio, Select, Spin, Empty, message, Row, Col } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listProjects, deleteProject } from '../api/projects';
-import { useAuth } from '../contexts/AuthContext';
+import type { ProjectSortBy, ProjectSortOrder } from '../api/projects';
 import ProjectCard from '../components/Projects/ProjectCard';
 import ProjectFormModal from '../components/Projects/ProjectFormModal';
 import type { Project } from '../types';
+import {
+  readProjectSortFromStorage,
+  writeProjectSortToStorage,
+} from '../utils/projectSort';
 
 type StatusFilter = 'all' | 'active' | 'closed';
 
+const SORT_OPTIONS = [
+  { value: 'created_at:desc', label: 'Дата ↓ (новые)' },
+  { value: 'created_at:asc', label: 'Дата ↑ (старые)' },
+  { value: 'name:asc', label: 'Имя ↑ (А–Я)' },
+  { value: 'name:desc', label: 'Имя ↓ (Я–А)' },
+];
+
 export default function ProjectsPage() {
-  const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -23,14 +33,28 @@ export default function ProjectsPage() {
   };
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
+  const [sort, setSort] = useState(readProjectSortFromStorage);
   const [showCreate, setShowCreate] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
 
+  const sortSelectValue = `${sort.sortBy}:${sort.sortOrder}`;
+
   const { data, isLoading } = useQuery({
-    queryKey: ['projects', statusFilter],
+    queryKey: ['projects', statusFilter, sort.sortBy, sort.sortOrder],
     queryFn: () =>
-      listProjects({ status: statusFilter === 'all' ? undefined : statusFilter }),
+      listProjects({
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        sortBy: sort.sortBy,
+        sortOrder: sort.sortOrder,
+      }),
   });
+
+  const handleSortChange = (value: string) => {
+    const [sortBy, sortOrder] = value.split(':') as [ProjectSortBy, ProjectSortOrder];
+    const next = { sortBy, sortOrder };
+    setSort(next);
+    writeProjectSortToStorage(next);
+  };
 
   const handleDelete = async (id: number) => {
     try {
@@ -62,37 +86,51 @@ export default function ProjectsPage() {
         }}
       >
         <h2 style={{ margin: 0, fontSize: 'clamp(18px, 3vw, 22px)' }}>Проекты</h2>
-        {isAdmin && (
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setShowCreate(true)}
-          >
-            Создать проект
-          </Button>
-        )}
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setShowCreate(true)}
+        >
+          Создать проект
+        </Button>
       </div>
 
-      <Radio.Group
-        value={statusFilter}
-        onChange={(e) => {
-          const val = e.target.value as StatusFilter;
-          setStatusFilter(val);
-          if (val === 'all') {
-            setSearchParams({});
-          } else {
-            setSearchParams({ status: val });
-          }
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 12,
+          marginBottom: 20,
+          alignItems: 'center',
         }}
-        style={{ marginBottom: 20 }}
-        optionType="button"
-        buttonStyle="solid"
-        options={[
-          { label: 'Все', value: 'all' },
-          { label: 'В работе', value: 'active' },
-          { label: 'Закрытые', value: 'closed' },
-        ]}
-      />
+      >
+        <Radio.Group
+          value={statusFilter}
+          onChange={(e) => {
+            const val = e.target.value as StatusFilter;
+            setStatusFilter(val);
+            if (val === 'all') {
+              setSearchParams({});
+            } else {
+              setSearchParams({ status: val });
+            }
+          }}
+          optionType="button"
+          buttonStyle="solid"
+          options={[
+            { label: 'Все', value: 'all' },
+            { label: 'В работе', value: 'active' },
+            { label: 'Закрытые', value: 'closed' },
+          ]}
+        />
+        <Select
+          value={sortSelectValue}
+          onChange={handleSortChange}
+          options={SORT_OPTIONS}
+          style={{ minWidth: 200 }}
+          aria-label="Сортировка проектов"
+        />
+      </div>
 
       {isLoading ? (
         <div style={{ textAlign: 'center', paddingTop: 64 }}>
@@ -106,15 +144,15 @@ export default function ProjectsPage() {
             <Col key={project.id} xs={24} sm={12} lg={8} xl={6} style={{ display: 'flex' }}>
               <ProjectCard
                 project={project}
-                onDelete={isAdmin ? handleDelete : undefined}
-                onEdit={isAdmin ? setEditProject : undefined}
+                onDelete={handleDelete}
+                onEdit={setEditProject}
               />
             </Col>
           ))}
         </Row>
       )}
 
-      {isAdmin && (showCreate || editProject) && (
+      {(showCreate || editProject) && (
         <ProjectFormModal
           open={showCreate || !!editProject}
           project={editProject}

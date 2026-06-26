@@ -7,16 +7,23 @@ import type {
   ProjectUpdate,
 } from '../types';
 
+export type ProjectSortBy = 'name' | 'created_at';
+export type ProjectSortOrder = 'asc' | 'desc';
+
 export async function listProjects(params?: {
   status?: string;
   page?: number;
   pageSize?: number;
+  sortBy?: ProjectSortBy;
+  sortOrder?: ProjectSortOrder;
 }): Promise<ProjectListOut> {
   const res = await client.get<ProjectListOut>('/projects', {
     params: {
       status: params?.status,
       page: params?.page ?? 1,
       page_size: params?.pageSize ?? 50,
+      sort_by: params?.sortBy,
+      sort_order: params?.sortOrder,
     },
   });
   return res.data;

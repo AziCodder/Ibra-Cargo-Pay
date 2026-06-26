@@ -116,8 +116,8 @@ export interface Project {
   project_number: number;
   name: string;
   description?: string | null;
-  client_id: number;
-  client: UserBrief;
+  client_id?: number | null;
+  client?: UserBrief | null;
   status: ProjectStatus;
   created_at: string;
 }
@@ -125,14 +125,12 @@ export interface Project {
 export interface ProjectCreate {
   name: string;
   description?: string | null;
-  client_id: number;
   status?: ProjectStatus;
 }
 
 export interface ProjectUpdate {
   name?: string;
   description?: string | null;
-  client_id?: number;
   status?: ProjectStatus;
 }
 

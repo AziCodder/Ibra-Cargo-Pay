@@ -24,7 +24,6 @@ import {
   downloadProjectExport,
   getProject,
 } from '../api/projects';
-import { useAuth } from '../contexts/AuthContext';
 import ItemsPanel from '../components/ProjectDetail/ItemsPanel';
 import PaymentRequestsPanel from '../components/ProjectDetail/PaymentRequestsPanel';
 import ProjectFormModal from '../components/Projects/ProjectFormModal';
@@ -48,7 +47,6 @@ export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialReqId = searchParams.get('req') ? Number(searchParams.get('req')) : undefined;
-  const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const { token } = useToken();
   const screens = useBreakpoint();
@@ -154,55 +152,26 @@ export default function ProjectDetailPage() {
           >
             {isMobile ? '' : 'Excel'}
           </Button>
-          {isAdmin && (
-            <>
-              <Button
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => setEditOpen(true)}
-              >
-                {isMobile ? '' : 'Редактировать'}
-              </Button>
-              <Popconfirm
-                title="Удалить проект?"
-                description="Проект без заявок на оплату будет удалён навсегда."
-                okText="Удалить"
-                okType="danger"
-                cancelText="Отмена"
-                onConfirm={handleDelete}
-              >
-                <Button size="small" danger icon={<DeleteOutlined />}>
-                  {isMobile ? '' : 'Удалить'}
-                </Button>
-              </Popconfirm>
-            </>
-          )}
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => setEditOpen(true)}
+          >
+            {isMobile ? '' : 'Редактировать'}
+          </Button>
+          <Popconfirm
+            title="Удалить проект?"
+            description="Проект без заявок на оплату будет удалён навсегда."
+            okText="Удалить"
+            okType="danger"
+            cancelText="Отмена"
+            onConfirm={handleDelete}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              {isMobile ? '' : 'Удалить'}
+            </Button>
+          </Popconfirm>
         </Space>
-      </div>
-
-      {/* Строка 2: клиент + дата + баланс */}
-      <div
-        style={{
-          display: 'flex',
-          gap: isMobile ? 10 : 20,
-          paddingLeft: isMobile ? 0 : 44,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          fontSize: 13,
-        }}
-      >
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Клиент: <Text strong>{project.client.full_name}</Text>
-        </Text>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          Создан:{' '}
-          {new Date(project.created_at).toLocaleDateString('ru-RU', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-          })}
-        </Text>
-
       </div>
     </div>
   );
@@ -249,18 +218,16 @@ export default function ProjectDetailPage() {
           />
         </div>
 
-        {isAdmin && (
-          <ProjectFormModal
-            open={editOpen}
-            project={project}
-            onClose={() => setEditOpen(false)}
-            onSuccess={() => {
-              setEditOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-              queryClient.invalidateQueries({ queryKey: ['projects'] });
-            }}
-          />
-        )}
+        <ProjectFormModal
+          open={editOpen}
+          project={project}
+          onClose={() => setEditOpen(false)}
+          onSuccess={() => {
+            setEditOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            queryClient.invalidateQueries({ queryKey: ['projects'] });
+          }}
+        />
       </div>
     );
   }
@@ -303,18 +270,16 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {isAdmin && (
-        <ProjectFormModal
-          open={editOpen}
-          project={project}
-          onClose={() => setEditOpen(false)}
-          onSuccess={() => {
-            setEditOpen(false);
-            queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-            queryClient.invalidateQueries({ queryKey: ['projects'] });
-          }}
-        />
-      )}
+      <ProjectFormModal
+        open={editOpen}
+        project={project}
+        onClose={() => setEditOpen(false)}
+        onSuccess={() => {
+          setEditOpen(false);
+          queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+          queryClient.invalidateQueries({ queryKey: ['projects'] });
+        }}
+      />
     </div>
   );
 }

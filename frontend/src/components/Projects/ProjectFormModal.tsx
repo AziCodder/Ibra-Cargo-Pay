@@ -1,42 +1,29 @@
 import { useEffect, useState } from 'react';
 import { Form, Input, Modal, Select, message } from 'antd';
-import { useQuery } from '@tanstack/react-query';
 import { createProject, updateProject } from '../../api/projects';
-import { listUsers } from '../../api/users';
 import type { Project, ProjectCreate, ProjectUpdate } from '../../types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  project?: Project | null; // если передан — режим редактирования
+  project?: Project | null;
 }
 
 export default function ProjectFormModal({ open, onClose, onSuccess, project }: Props) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  const { data: usersData } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => listUsers(1, 200),
-  });
-
-  // Фильтруем только клиентов для выбора
-  const clientOptions =
-    usersData?.items
-      .filter((u) => u.role === 'client')
-      .map((u) => ({ value: u.id, label: u.full_name })) ?? [];
-
   useEffect(() => {
     if (open && project) {
       form.setFieldsValue({
         name: project.name,
         description: project.description ?? '',
-        client_id: project.client_id,
         status: project.status,
       });
     } else if (open) {
       form.resetFields();
+      form.setFieldsValue({ status: 'active' });
     }
   }, [open, project, form]);
 
@@ -47,13 +34,16 @@ export default function ProjectFormModal({ open, onClose, onSuccess, project }: 
         const upd: ProjectUpdate = {
           name: values.name,
           description: values.description || null,
-          client_id: values.client_id,
           status: values.status,
         };
         await updateProject(project.id, upd);
         message.success('Проект обновлён');
       } else {
-        await createProject(values);
+        await createProject({
+          name: values.name,
+          description: values.description || null,
+          status: values.status ?? 'active',
+        });
         message.success('Проект создан');
       }
       onSuccess();
@@ -87,28 +77,14 @@ export default function ProjectFormModal({ open, onClose, onSuccess, project }: 
         <Form.Item name="description" label="Описание">
           <Input.TextArea rows={2} />
         </Form.Item>
-        <Form.Item
-          name="client_id"
-          label="Клиент"
-          rules={[{ required: true, message: 'Выберите клиента' }]}
-        >
+        <Form.Item name="status" label="Статус" initialValue="active">
           <Select
-            showSearch
-            optionFilterProp="label"
-            options={clientOptions}
-            placeholder="Выберите клиента"
+            options={[
+              { value: 'active', label: 'В работе' },
+              { value: 'closed', label: 'Закрытый' },
+            ]}
           />
         </Form.Item>
-        {project && (
-          <Form.Item name="status" label="Статус">
-            <Select
-              options={[
-                { value: 'active', label: 'В работе' },
-                { value: 'closed', label: 'Закрытый' },
-              ]}
-            />
-          </Form.Item>
-        )}
       </Form>
     </Modal>
   );
