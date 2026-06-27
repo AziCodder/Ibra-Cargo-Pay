@@ -501,7 +501,7 @@ async def update_payment_request(
     return await _build_request_out(loaded, db, current_user)
 
 
-@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_payment_request(
     project_id: int,
     req_id: int,

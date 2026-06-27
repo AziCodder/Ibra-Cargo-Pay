@@ -1,0 +1,23 @@
+# Override для VPS (мало RAM, медленный диск, educrm на 80/443).
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      start_period: 120s
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  frontend:
+    ports:
+      - "8081:80"
+
+  # На сервере ~891 MiB RAM — bot и backup отключаем (профиль full включает их)
+  bot:
+    profiles: ["full"]
+
+  backup:
+    profiles: ["full"]

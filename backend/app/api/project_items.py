@@ -335,7 +335,7 @@ async def update_item(
     return _serialize_item(result.scalar_one(), current_user)
 
 
-@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_item(
     project_id: int,
     item_id: int,

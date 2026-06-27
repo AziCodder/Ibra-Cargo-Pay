@@ -376,7 +376,7 @@ async def update_payment(
     return PaymentOut.model_validate(payment)
 
 
-@router.delete("/{pay_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{pay_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_payment(
     req_id: int,
     pay_id: int,

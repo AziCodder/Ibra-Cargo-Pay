@@ -95,7 +95,7 @@ async def upload_attachment(
     return AttachmentOut.model_validate(attachment)
 
 
-@router.delete("/{att_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{att_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_attachment(
     project_id: int,
     req_id: int,

@@ -135,7 +135,7 @@ async def update_supplier(
     return SupplierOut.model_validate(supplier)
 
 
-@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_supplier(
     supplier_id: int,
     current_user=Depends(require_admin),

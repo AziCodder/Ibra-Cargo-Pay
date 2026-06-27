@@ -93,7 +93,7 @@ async def add_requirement(
     return RequirementOut.model_validate(req)
 
 
-@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_requirement(
     project_id: int,
     item_id: int,
