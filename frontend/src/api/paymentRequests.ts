@@ -7,9 +7,34 @@ import type {
   PaymentRequestUpdate,
 } from '../types';
 
-export async function listPaymentRequests(projectId: number): Promise<PaymentRequestList[]> {
+export type PaymentRequestSortBy = 'created_at' | 'total_amount' | 'item_name';
+export type PaymentRequestSortOrder = 'asc' | 'desc';
+export type PaymentRequestStatusFilter = 'all' | 'paid' | 'unpaid';
+
+export interface PaymentRequestListParams {
+  sort_by?: PaymentRequestSortBy;
+  sort_order?: PaymentRequestSortOrder;
+  status_filter?: PaymentRequestStatusFilter;
+  date_from?: string;
+  date_to?: string;
+  item_ids?: number[];
+}
+
+export async function listPaymentRequests(
+  projectId: number,
+  params?: PaymentRequestListParams,
+): Promise<PaymentRequestList[]> {
+  const query: Record<string, string> = {};
+  if (params?.sort_by) query.sort_by = params.sort_by;
+  if (params?.sort_order) query.sort_order = params.sort_order;
+  if (params?.status_filter) query.status_filter = params.status_filter;
+  if (params?.date_from) query.date_from = params.date_from;
+  if (params?.date_to) query.date_to = params.date_to;
+  if (params?.item_ids?.length) query.item_ids = params.item_ids.join(',');
+
   const res = await client.get<PaymentRequestList[]>(
     `/projects/${projectId}/payment-requests`,
+    { params: query },
   );
   return res.data;
 }

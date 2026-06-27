@@ -54,3 +54,13 @@ class TestPaymentDeletePermissions:
 class TestPaymentRequestListSchema:
     def test_list_out_has_paid_amount(self):
         assert "paid_amount" in PaymentRequestListOut.model_fields
+
+
+class TestParseItemIds:
+    def test_parse_item_ids(self):
+        from app.api.payment_requests import _parse_item_ids
+
+        assert _parse_item_ids(None) == []
+        assert _parse_item_ids("") == []
+        assert _parse_item_ids("1,2,3") == [1, 2, 3]
+        assert _parse_item_ids("1, x, 3") == [1, 3]

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
+  DatePicker,
   Empty,
   Popconfirm,
   Progress,
+  Select,
+  Space,
   Spin,
   Tag,
   Typography,
@@ -14,12 +17,24 @@ import {
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listPaymentRequests, deletePaymentRequest } from '../../api/paymentRequests';
+import { listItems } from '../../api/projectItems';
 import { useAuth } from '../../contexts/AuthContext';
 import PaymentRequestFormModal from './PaymentRequestFormModal';
 import PaymentRequestDetailModal from './PaymentRequestDetailModal';
 import type { PaymentRequestList, PaymentRequestPriority } from '../../types';
 import { fmt } from '../../utils/format';
-import dayjs from 'dayjs';
+import {
+  readPaymentRequestFilters,
+  toListParams,
+  writePaymentRequestFilters,
+  type PaymentRequestFiltersState,
+  type PaymentRequestSortBy,
+  type PaymentRequestSortOrder,
+  type PaymentRequestStatusFilter,
+} from '../../utils/paymentRequestFilters';
+import dayjs, { type Dayjs } from 'dayjs';
+
+const { RangePicker } = DatePicker;
 
 const PRIORITY_LABEL: Record<PaymentRequestPriority, string> = {
   urgent: 'Срочно',
@@ -30,11 +45,6 @@ const PRIORITY_COLOR: Record<PaymentRequestPriority, string> = {
   urgent: 'red',
   normal: 'blue',
   deferred: 'default',
-};
-const PRIORITY_SORT: Record<PaymentRequestPriority, number> = {
-  urgent: 0,
-  normal: 1,
-  deferred: 2,
 };
 
 function renderDueDate(due: string | null | undefined): {
@@ -66,11 +76,42 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
   const { token } = useToken();
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(initialReqId ?? null);
+  const [filters, setFilters] = useState<PaymentRequestFiltersState>(() =>
+    readPaymentRequestFilters(projectId),
+  );
+
+  const listParams = useMemo(() => toListParams(filters), [filters]);
+
+  useEffect(() => {
+    writePaymentRequestFilters(projectId, filters);
+  }, [projectId, filters]);
 
   const { data: requests = [], isLoading } = useQuery({
-    queryKey: ['payment-requests', projectId],
-    queryFn: () => listPaymentRequests(projectId),
+    queryKey: ['payment-requests', projectId, listParams],
+    queryFn: () => listPaymentRequests(projectId, listParams),
   });
+
+  const { data: projectItems = [] } = useQuery({
+    queryKey: ['project-items', projectId],
+    queryFn: () => listItems(projectId),
+  });
+
+  const itemOptions = useMemo(
+    () => projectItems.map((item) => ({ value: item.id, label: item.name })),
+    [projectItems],
+  );
+
+  const dateRangeValue: [Dayjs | null, Dayjs | null] | null =
+    filters.dateFrom || filters.dateTo
+      ? [
+          filters.dateFrom ? dayjs(filters.dateFrom) : null,
+          filters.dateTo ? dayjs(filters.dateTo) : null,
+        ]
+      : null;
+
+  const updateFilters = (patch: Partial<PaymentRequestFiltersState>) => {
+    setFilters((prev) => ({ ...prev, ...patch }));
+  };
 
   const handleDelete = async (req: PaymentRequestList) => {
     try {
@@ -108,25 +149,72 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
         </Button>
       </div>
 
+      <Space wrap size={[8, 8]} style={{ marginBottom: 12, width: '100%' }}>
+        <RangePicker
+          size="small"
+          value={dateRangeValue}
+          format="DD.MM.YYYY"
+          placeholder={['Дата от', 'Дата до']}
+          onChange={(range) => {
+            updateFilters({
+              dateFrom: range?.[0] ? range[0].format('YYYY-MM-DD') : null,
+              dateTo: range?.[1] ? range[1].format('YYYY-MM-DD') : null,
+            });
+          }}
+          allowEmpty={[true, true]}
+        />
+        <Select
+          size="small"
+          style={{ minWidth: 140 }}
+          value={filters.statusFilter}
+          onChange={(v: PaymentRequestStatusFilter) => updateFilters({ statusFilter: v })}
+          options={[
+            { value: 'all', label: 'Все статусы' },
+            { value: 'paid', label: 'Оплачено' },
+            { value: 'unpaid', label: 'Не оплачено' },
+          ]}
+        />
+        <Select
+          size="small"
+          mode="multiple"
+          allowClear
+          placeholder="Номенклатура"
+          style={{ minWidth: 180, maxWidth: 320 }}
+          value={filters.itemIds}
+          options={itemOptions}
+          onChange={(ids: number[]) => updateFilters({ itemIds: ids })}
+          maxTagCount="responsive"
+        />
+        <Select
+          size="small"
+          style={{ minWidth: 130 }}
+          value={filters.sortBy}
+          onChange={(v: PaymentRequestSortBy) => updateFilters({ sortBy: v })}
+          options={[
+            { value: 'created_at', label: 'По дате' },
+            { value: 'total_amount', label: 'По сумме' },
+            { value: 'item_name', label: 'По номенклатуре' },
+          ]}
+        />
+        <Select
+          size="small"
+          style={{ width: 110 }}
+          value={filters.sortOrder}
+          onChange={(v: PaymentRequestSortOrder) => updateFilters({ sortOrder: v })}
+          options={[
+            { value: 'desc', label: '↓ Убыв.' },
+            { value: 'asc', label: '↑ Возр.' },
+          ]}
+        />
+      </Space>
+
       {isLoading ? (
         <Spin />
       ) : requests.length === 0 ? (
         <Empty description="Нет заявок на оплату" />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {[...requests]
-            .sort((a, b) => {
-              const pa = PRIORITY_SORT[a.priority] ?? 1;
-              const pb = PRIORITY_SORT[b.priority] ?? 1;
-              if (pa !== pb) return pa - pb;
-              if (a.due_date && b.due_date) {
-                return dayjs(a.due_date).valueOf() - dayjs(b.due_date).valueOf();
-              }
-              if (a.due_date && !b.due_date) return -1;
-              if (!a.due_date && b.due_date) return 1;
-              return dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf();
-            })
-            .map((req) => {
+          {requests.map((req) => {
             const total = parseFloat(req.total_amount);
             const remaining = parseFloat(req.remaining_amount);
             const paid = total - remaining;

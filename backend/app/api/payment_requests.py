@@ -1,8 +1,10 @@
 import logging
+from datetime import date
 from decimal import Decimal
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -135,28 +137,103 @@ async def _load_request(req_id: int, project_id: int, db: AsyncSession) -> Payme
     return req
 
 
+def _parse_item_ids(item_ids: str | None) -> list[int]:
+    if not item_ids:
+        return []
+    parsed: list[int] = []
+    for part in item_ids.split(","):
+        part = part.strip()
+        if part.isdigit():
+            parsed.append(int(part))
+    return parsed
+
+
 @router.get("")
 async def list_payment_requests(
     project_id: int,
+    sort_by: Literal["created_at", "total_amount", "item_name"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
+    status_filter: Literal["all", "paid", "unpaid"] = "all",
+    date_from: date | None = None,
+    date_to: date | None = None,
+    item_ids: str | None = Query(None, description="ID позиций через запятую"),
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _get_project_or_404(project_id, db)
     await _check_access(project, current_user)
 
+    paid_sq = (
+        select(
+            Payment.payment_request_id.label("req_id"),
+            func.coalesce(func.sum(Payment.amount), 0).label("paid_total"),
+        )
+        .where(Payment.status == "confirmed")
+        .group_by(Payment.payment_request_id)
+        .subquery()
+    )
+
+    item_name_sq = (
+        select(
+            PaymentRequestItem.payment_request_id.label("req_id"),
+            func.min(ProjectItem.name).label("item_sort_name"),
+        )
+        .join(ProjectItem, PaymentRequestItem.project_item_id == ProjectItem.id)
+        .group_by(PaymentRequestItem.payment_request_id)
+        .subquery()
+    )
+
+    query = select(PaymentRequest).where(PaymentRequest.project_id == project_id)
+
+    if status_filter != "all":
+        query = query.outerjoin(paid_sq, PaymentRequest.id == paid_sq.c.req_id)
+
+    if sort_by == "item_name":
+        query = query.outerjoin(item_name_sq, PaymentRequest.id == item_name_sq.c.req_id)
+
+    if date_from is not None:
+        query = query.where(func.date(PaymentRequest.created_at) >= date_from)
+    if date_to is not None:
+        query = query.where(func.date(PaymentRequest.created_at) <= date_to)
+
+    parsed_item_ids = _parse_item_ids(item_ids)
+    if parsed_item_ids:
+        query = query.where(
+            PaymentRequest.id.in_(
+                select(PaymentRequestItem.payment_request_id).where(
+                    PaymentRequestItem.project_item_id.in_(parsed_item_ids)
+                )
+            )
+        )
+
+    if status_filter == "paid":
+        query = query.where(
+            PaymentRequest.total_amount <= func.coalesce(paid_sq.c.paid_total, 0)
+        )
+    elif status_filter == "unpaid":
+        query = query.where(
+            PaymentRequest.total_amount > func.coalesce(paid_sq.c.paid_total, 0)
+        )
+
+    if sort_by == "created_at":
+        order_col = PaymentRequest.created_at
+    elif sort_by == "total_amount":
+        order_col = PaymentRequest.total_amount
+    else:
+        order_col = item_name_sq.c.item_sort_name
+
+    query = query.order_by(
+        desc(order_col) if sort_order == "desc" else asc(order_col)
+    )
+
     result = await db.execute(
-        select(PaymentRequest)
-        .where(PaymentRequest.project_id == project_id)
-        .options(
+        query.options(
             selectinload(PaymentRequest.items).selectinload(PaymentRequestItem.project_item),
             selectinload(PaymentRequest.payments),
         )
-        .order_by(PaymentRequest.created_at.desc())
     )
-    requests = result.scalars().all()
+    requests = result.scalars().unique().all()
 
-    # Собираем все remaining_amount одним запросом вместо N+1
-    # Учитываем только confirmed платежи (pending/rejected не снижают остаток)
     req_ids = [r.id for r in requests]
     paid_map: dict[int, Decimal] = {}
     if req_ids:
