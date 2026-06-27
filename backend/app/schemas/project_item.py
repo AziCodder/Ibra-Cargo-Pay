@@ -10,7 +10,7 @@ class ProjectItemCreate(BaseModel):
     quantity: Decimal = Field(..., gt=0, description="Количество")
     supplier_id: int | None = None
     price: Decimal = Field(..., ge=0, description="Цена")
-    cost_price: Decimal = Field(..., ge=0, description="Себестоимость")
+    cost_price: Decimal | None = Field(default=None, ge=0, description="Себестоимость (admin)")
     currency: str
     commission: Decimal = Field(default=Decimal("0"), ge=0, le=100, description="Комиссия %")
 
@@ -31,6 +31,7 @@ class ProjectItemUpdate(BaseModel):
     cost_price: Decimal | None = None
     currency: str | None = None
     commission: Decimal | None = None
+    shared_access: bool | None = None
 
     @field_validator("currency")
     @classmethod
@@ -59,7 +60,6 @@ class RequirementCreate(BaseModel):
     text: str
 
 
-# Клиентская схема — без cost_price
 class ProjectItemClientOut(BaseModel):
     id: int
     project_id: int
@@ -71,8 +71,12 @@ class ProjectItemClientOut(BaseModel):
     price: Decimal
     currency: str
     commission: Decimal
-    invoiced_amount: Decimal = Decimal("0")  # сумма по PaymentRequestItem для этой позиции
-    paid_amount: Decimal = Decimal("0")       # фактически оплачено (confirmed payments, пропорционально)
+    created_by: int
+    shared_access: bool
+    sort_order: int
+    can_edit: bool = False
+    invoiced_amount: Decimal = Decimal("0")
+    paid_amount: Decimal = Decimal("0")
     requirements: list[RequirementOut] = []
     created_at: datetime
     updated_at: datetime
@@ -80,6 +84,5 @@ class ProjectItemClientOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Админская схема — включает cost_price
 class ProjectItemAdminOut(ProjectItemClientOut):
-    cost_price: Decimal
+    cost_price: Decimal | None = None

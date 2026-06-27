@@ -14,7 +14,7 @@ from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project_item import ProjectItem
@@ -97,7 +97,7 @@ def _parse_decimal(value, *, allow_none: bool = False) -> Decimal | None:
 
 
 async def parse_items_xlsx(
-    db: AsyncSession, project_id: int, file_bytes: bytes
+    db: AsyncSession, project_id: int, file_bytes: bytes, *, created_by: int
 ) -> dict:
     """
     Парсит xlsx-файл с позициями и создаёт записи ProjectItem.
@@ -141,6 +141,12 @@ async def parse_items_xlsx(
     supplier_by_name = {s.full_name.strip().lower(): s.id for s in suppliers_rows}
 
     created = 0
+    max_sort_result = await db.execute(
+        select(func.coalesce(func.max(ProjectItem.sort_order), -1)).where(
+            ProjectItem.project_id == project_id
+        )
+    )
+    next_sort = int(max_sort_result.scalar_one()) + 1
     errors: list[dict] = []
 
     for row_idx, raw_row in enumerate(rows[data_start_idx:], start=data_start_idx + 1):
@@ -208,7 +214,11 @@ async def parse_items_xlsx(
                 cost_price=cost_price,
                 currency=currency,
                 commission=commission,
+                created_by=created_by,
+                shared_access=False,
+                sort_order=next_sort,
             )
+            next_sort += 1
             db.add(item)
             created += 1
 

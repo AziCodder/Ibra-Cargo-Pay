@@ -2,8 +2,6 @@ import logging
 from decimal import Decimal
 from io import BytesIO
 
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
@@ -12,10 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
+from app.core.permissions import (
+    can_edit_item,
+    default_shared_access_for_creator,
+    ensure_project_access,
+)
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
-from app.models.project import Project
 from app.models.project_item import ProjectItem
 from app.models.supplier import Supplier
 from app.schemas.project_item import (
@@ -30,29 +32,53 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{project_id}/items", tags=["project-items"])
 
-
-async def _get_project_or_404(project_id: int, db: AsyncSession) -> Project:
-    project = await db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Проект не найден")
-    return project
+_ITEM_LOAD = (
+    selectinload(ProjectItem.supplier),
+    selectinload(ProjectItem.requirements),
+)
 
 
-async def _check_access(project: Project, current_user) -> None:
-    """Доступ к проекту для любого авторизованного пользователя."""
-    return
+async def _get_item_or_404(
+    project_id: int, item_id: int, db: AsyncSession
+) -> ProjectItem:
+    result = await db.execute(
+        select(ProjectItem)
+        .where(ProjectItem.id == item_id, ProjectItem.project_id == project_id)
+        .options(*_ITEM_LOAD)
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Позиция не найдена")
+    return item
+
+
+async def _next_sort_order(project_id: int, db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.coalesce(func.max(ProjectItem.sort_order), -1)).where(
+            ProjectItem.project_id == project_id
+        )
+    )
+    return int(result.scalar_one()) + 1
+
+
+def _resolve_cost_price_on_create(user, data: ProjectItemCreate) -> Decimal | None:
+    if user.role == "client":
+        return data.price
+    return data.cost_price
 
 
 def _serialize_item(
     item: ProjectItem,
-    is_admin: bool,
+    user,
     invoiced_amount: Decimal = Decimal("0"),
     paid_amount: Decimal = Decimal("0"),
 ):
+    is_admin = user.role == "admin"
     if is_admin:
         obj = ProjectItemAdminOut.model_validate(item)
     else:
         obj = ProjectItemClientOut.model_validate(item)
+    obj.can_edit = can_edit_item(user, item)
     obj.invoiced_amount = invoiced_amount
     obj.paid_amount = paid_amount
     return obj
@@ -61,7 +87,6 @@ def _serialize_item(
 async def _get_invoiced_map(
     item_ids: list[int], db: AsyncSession
 ) -> dict[int, Decimal]:
-    """Возвращает сумму PaymentRequestItem.amount, сгруппированную по project_item_id."""
     if not item_ids:
         return {}
     result = await db.execute(
@@ -78,14 +103,9 @@ async def _get_invoiced_map(
 async def _get_paid_map(
     item_ids: list[int], db: AsyncSession
 ) -> dict[int, Decimal]:
-    """
-    Пропорциональная сумма подтверждённых оплат на каждую позицию:
-    paid_i = Σ_PR [ (amount_i_in_PR / PR.total_amount) * Σ confirmed_payments_for_PR ]
-    """
     if not item_ids:
         return {}
 
-    # Подзапрос: подтверждённые суммы по каждой заявке
     confirmed_sq = (
         select(
             Payment.payment_request_id,
@@ -122,26 +142,22 @@ async def list_items(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project_or_404(project_id, db)
-    await _check_access(project, current_user)
+    await ensure_project_access(project_id, current_user, db)
 
     result = await db.execute(
         select(ProjectItem)
         .where(ProjectItem.project_id == project_id)
-        .options(
-            selectinload(ProjectItem.supplier),
-            selectinload(ProjectItem.requirements),
-        )
-        .order_by(ProjectItem.created_at.asc())
+        .options(*_ITEM_LOAD)
+        .order_by(ProjectItem.sort_order.asc(), ProjectItem.id.asc())
     )
     items = result.scalars().all()
-    is_admin = current_user.role == "admin"
     item_ids = [i.id for i in items]
     invoiced_map = await _get_invoiced_map(item_ids, db)
     paid_map = await _get_paid_map(item_ids, db)
     return [
         _serialize_item(
-            item, is_admin,
+            item,
+            current_user,
             invoiced_map.get(item.id, Decimal("0")),
             paid_map.get(item.id, Decimal("0")),
         )
@@ -155,7 +171,7 @@ async def download_items_template(
     _admin=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, _admin, db)
     file_bytes = import_service.generate_items_template()
     return StreamingResponse(
         BytesIO(file_bytes),
@@ -175,7 +191,7 @@ async def import_items(
     current_user=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
 
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(
@@ -184,9 +200,10 @@ async def import_items(
         )
 
     content = await file.read()
-    result = await import_service.parse_items_xlsx(db, project_id, content)
+    result = await import_service.parse_items_xlsx(
+        db, project_id, content, created_by=current_user.id
+    )
 
-    # Audit только если что-то создано
     if result.get("created", 0) > 0:
         await audit_service.log_action(
             db,
@@ -205,10 +222,10 @@ async def import_items(
 async def create_item(
     project_id: int,
     data: ProjectItemCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
 
     if data.supplier_id is not None:
         supplier = await db.get(Supplier, data.supplier_id)
@@ -225,9 +242,12 @@ async def create_item(
         quantity=data.quantity,
         supplier_id=data.supplier_id,
         price=data.price,
-        cost_price=data.cost_price,
+        cost_price=_resolve_cost_price_on_create(current_user, data),
         currency=data.currency,
         commission=data.commission,
+        created_by=current_user.id,
+        shared_access=default_shared_access_for_creator(current_user.role),
+        sort_order=await _next_sort_order(project_id, db),
     )
     db.add(item)
     await db.flush()
@@ -245,14 +265,10 @@ async def create_item(
     await db.refresh(item)
 
     result = await db.execute(
-        select(ProjectItem)
-        .where(ProjectItem.id == item.id)
-        .options(
-            selectinload(ProjectItem.supplier),
-            selectinload(ProjectItem.requirements),
-        )
+        select(ProjectItem).where(ProjectItem.id == item.id).options(*_ITEM_LOAD)
     )
-    return ProjectItemAdminOut.model_validate(result.scalar_one())
+    loaded = result.scalar_one()
+    return _serialize_item(loaded, current_user)
 
 
 @router.get("/{item_id}")
@@ -262,24 +278,13 @@ async def get_item(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _get_project_or_404(project_id, db)
-    await _check_access(project, current_user)
-
-    result = await db.execute(
-        select(ProjectItem)
-        .where(ProjectItem.id == item_id, ProjectItem.project_id == project_id)
-        .options(
-            selectinload(ProjectItem.supplier),
-            selectinload(ProjectItem.requirements),
-        )
-    )
-    item = result.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Позиция не найдена")
+    await ensure_project_access(project_id, current_user, db)
+    item = await _get_item_or_404(project_id, item_id, db)
     invoiced_map = await _get_invoiced_map([item.id], db)
     paid_map = await _get_paid_map([item.id], db)
     return _serialize_item(
-        item, current_user.role == "admin",
+        item,
+        current_user,
         invoiced_map.get(item.id, Decimal("0")),
         paid_map.get(item.id, Decimal("0")),
     )
@@ -290,26 +295,21 @@ async def update_item(
     project_id: int,
     item_id: int,
     data: ProjectItemUpdate,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
+    item = await _get_item_or_404(project_id, item_id, db)
 
-    result = await db.execute(
-        select(ProjectItem)
-        .where(ProjectItem.id == item_id, ProjectItem.project_id == project_id)
-        .options(
-            selectinload(ProjectItem.supplier),
-            selectinload(ProjectItem.requirements),
-        )
-    )
-    item = result.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Позиция не найдена")
+    if not can_edit_item(current_user, item):
+        raise HTTPException(status_code=403, detail="Нет прав на редактирование позиции")
 
     before = audit_service.entity_snapshot(item)
-
     update_dict = data.model_dump(exclude_unset=True)
+
+    if current_user.role != "admin":
+        update_dict.pop("shared_access", None)
+        update_dict.pop("cost_price", None)
 
     for field, value in update_dict.items():
         setattr(item, field, value)
@@ -330,24 +330,19 @@ async def update_item(
     await db.commit()
 
     result = await db.execute(
-        select(ProjectItem)
-        .where(ProjectItem.id == item_id)
-        .options(
-            selectinload(ProjectItem.supplier),
-            selectinload(ProjectItem.requirements),
-        )
+        select(ProjectItem).where(ProjectItem.id == item_id).options(*_ITEM_LOAD)
     )
-    return ProjectItemAdminOut.model_validate(result.scalar_one())
+    return _serialize_item(result.scalar_one(), current_user)
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_item(
     project_id: int,
     item_id: int,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
 
     result = await db.execute(
         select(ProjectItem).where(
@@ -357,6 +352,9 @@ async def delete_item(
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Позиция не найдена")
+
+    if not can_edit_item(current_user, item):
+        raise HTTPException(status_code=403, detail="Нет прав на удаление позиции")
 
     pri_count = await db.execute(
         select(func.count()).where(PaymentRequestItem.project_item_id == item_id)
@@ -371,8 +369,11 @@ async def delete_item(
     item_id_snapshot = item.id
 
     logger.info(
-        "Project item deleted: id=%s, name=%s, project_id=%s, by admin",
-        item.id, item.name, project_id,
+        "Project item deleted: id=%s, name=%s, project_id=%s, by user=%s",
+        item.id,
+        item.name,
+        project_id,
+        current_user.id,
     )
     await db.delete(item)
 
@@ -386,3 +387,75 @@ async def delete_item(
     )
 
     await db.commit()
+
+
+async def _swap_sort_order(
+    item: ProjectItem,
+    neighbor: ProjectItem,
+    db: AsyncSession,
+    user,
+) -> None:
+    if not can_edit_item(user, item) or not can_edit_item(user, neighbor):
+        raise HTTPException(status_code=403, detail="Нет прав на изменение порядка")
+    item.sort_order, neighbor.sort_order = neighbor.sort_order, item.sort_order
+    await db.flush()
+
+
+@router.post("/{item_id}/move-up")
+async def move_item_up(
+    project_id: int,
+    item_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_project_access(project_id, current_user, db)
+    item = await _get_item_or_404(project_id, item_id, db)
+
+    neighbor_result = await db.execute(
+        select(ProjectItem)
+        .where(
+            ProjectItem.project_id == project_id,
+            ProjectItem.sort_order == item.sort_order - 1,
+        )
+        .options(*_ITEM_LOAD)
+    )
+    neighbor = neighbor_result.scalar_one_or_none()
+    if not neighbor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Позиция уже первая в списке",
+        )
+
+    await _swap_sort_order(item, neighbor, db, current_user)
+    await db.commit()
+    return _serialize_item(item, current_user)
+
+
+@router.post("/{item_id}/move-down")
+async def move_item_down(
+    project_id: int,
+    item_id: int,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await ensure_project_access(project_id, current_user, db)
+    item = await _get_item_or_404(project_id, item_id, db)
+
+    neighbor_result = await db.execute(
+        select(ProjectItem)
+        .where(
+            ProjectItem.project_id == project_id,
+            ProjectItem.sort_order == item.sort_order + 1,
+        )
+        .options(*_ITEM_LOAD)
+    )
+    neighbor = neighbor_result.scalar_one_or_none()
+    if not neighbor:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Позиция уже последняя в списке",
+        )
+
+    await _swap_sort_order(item, neighbor, db, current_user)
+    await db.commit()
+    return _serialize_item(item, current_user)

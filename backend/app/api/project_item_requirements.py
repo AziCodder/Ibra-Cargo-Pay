@@ -3,8 +3,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_admin
-from app.models.project import Project
+from app.core.dependencies import get_current_user
+from app.core.permissions import can_edit_item, ensure_project_access
 from app.models.project_item import ProjectItem
 from app.models.project_item_requirement import ProjectItemRequirement
 from app.schemas.project_item import RequirementCreate, RequirementOut
@@ -18,11 +18,10 @@ router = APIRouter(
 MAX_REQUIREMENTS = 5
 
 
-async def _get_item_or_404(project_id: int, item_id: int, db: AsyncSession) -> ProjectItem:
-    project = await db.get(Project, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Проект не найден")
-
+async def _get_item_or_404(
+    project_id: int, item_id: int, user, db: AsyncSession
+) -> ProjectItem:
+    await ensure_project_access(project_id, user, db)
     result = await db.execute(
         select(ProjectItem).where(
             ProjectItem.id == item_id, ProjectItem.project_id == project_id
@@ -34,11 +33,6 @@ async def _get_item_or_404(project_id: int, item_id: int, db: AsyncSession) -> P
     return item
 
 
-async def _check_access(item: ProjectItem, project_id: int, current_user, db: AsyncSession) -> None:
-    """Доступ к проекту для любого авторизованного пользователя."""
-    return
-
-
 @router.get("", response_model=list[RequirementOut])
 async def list_requirements(
     project_id: int,
@@ -46,8 +40,7 @@ async def list_requirements(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[RequirementOut]:
-    item = await _get_item_or_404(project_id, item_id, db)
-    await _check_access(item, project_id, current_user, db)
+    await _get_item_or_404(project_id, item_id, current_user, db)
 
     result = await db.execute(
         select(ProjectItemRequirement)
@@ -63,10 +56,15 @@ async def add_requirement(
     project_id: int,
     item_id: int,
     data: RequirementCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> RequirementOut:
-    await _get_item_or_404(project_id, item_id, db)
+    item = await _get_item_or_404(project_id, item_id, current_user, db)
+
+    if not can_edit_item(current_user, item):
+        raise HTTPException(
+            status_code=403, detail="Нет прав на добавление требований к позиции"
+        )
 
     count_result = await db.execute(
         select(func.count()).where(ProjectItemRequirement.item_id == item_id)
@@ -100,10 +98,15 @@ async def delete_requirement(
     project_id: int,
     item_id: int,
     req_id: int,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    await _get_item_or_404(project_id, item_id, db)
+    item = await _get_item_or_404(project_id, item_id, current_user, db)
+
+    if not can_edit_item(current_user, item):
+        raise HTTPException(
+            status_code=403, detail="Нет прав на удаление требований позиции"
+        )
 
     result = await db.execute(
         select(ProjectItemRequirement).where(
