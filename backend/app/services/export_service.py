@@ -93,7 +93,8 @@ async def generate_project_excel(
     # ── Агрегация по валютам ──
     # total = price * quantity (без комиссии)
     # commission = price * commission% * quantity (отдельный расчёт)
-    # profit = (price - cost_price) * quantity
+    # profit = (price - COALESCE(cost_price, price)) * quantity
+    effective_cost = func.coalesce(ProjectItem.cost_price, ProjectItem.price)
     summary_items_q = (
         select(
             ProjectItem.currency,
@@ -102,7 +103,7 @@ async def generate_project_excel(
                 ProjectItem.price * (ProjectItem.commission / 100) * ProjectItem.quantity
             ).label("commission"),
             func.sum(
-                (ProjectItem.price - ProjectItem.cost_price) * ProjectItem.quantity
+                (ProjectItem.price - effective_cost) * ProjectItem.quantity
             ).label("profit"),
         )
         .where(ProjectItem.project_id == project_id)
@@ -176,7 +177,8 @@ async def generate_project_excel(
         effective_price = item.price * (Decimal("1") + item.commission / Decimal("100"))
         line_total_with_commission = effective_price * item.quantity
         if is_admin:
-            profit = (item.price - item.cost_price) * item.quantity
+            effective_cost = item.cost_price if item.cost_price is not None else item.price
+            profit = (item.price - effective_cost) * item.quantity
             ws_items.append(
                 [
                     idx,
@@ -185,7 +187,7 @@ async def generate_project_excel(
                     float(item.quantity),
                     supplier_name or "",
                     float(item.price),
-                    float(item.cost_price),
+                    float(item.cost_price) if item.cost_price is not None else "",
                     float(item.commission),
                     item.currency,
                     float(line_total),

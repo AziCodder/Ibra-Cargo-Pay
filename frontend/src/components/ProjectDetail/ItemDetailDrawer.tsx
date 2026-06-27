@@ -145,9 +145,13 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
           <Descriptions.Item label="Цена">
             {price.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
           </Descriptions.Item>
-          {isAdmin && costPrice !== null && (
+          {isAdmin && (
             <Descriptions.Item label="Себестоимость">
-              {costPrice.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
+              {costPrice !== null ? (
+                costPrice.toLocaleString('ru-RU', { minimumFractionDigits: 2 })
+              ) : (
+                <Text type="secondary">Не указана (итог по цене)</Text>
+              )}
             </Descriptions.Item>
           )}
           <Descriptions.Item label="Итого к оплате">

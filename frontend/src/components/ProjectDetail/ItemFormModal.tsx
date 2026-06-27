@@ -148,7 +148,7 @@ export default function ItemFormModal({ open, projectId, item, onClose, onSucces
         </Form.Item>
         {isAdmin && (
           <Form.Item name="cost_price" label="Себестоимость">
-            <InputNumber min={0} style={{ width: '100%' }} />
+            <InputNumber min={0} style={{ width: '100%' }} placeholder="Не указана — равна цене" />
           </Form.Item>
         )}
         <Form.Item name="commission" label="Комиссия (%)">

@@ -197,9 +197,6 @@ async def get_project_summary(
         func.sum(
             ProjectItem.price * (ProjectItem.commission / 100) * ProjectItem.quantity
         ).label("commission"),
-        func.sum(
-            (ProjectItem.price - ProjectItem.cost_price) * ProjectItem.quantity
-        ).label("profit"),
     ).where(ProjectItem.project_id == project_id).group_by(ProjectItem.currency)
 
     items_result = await db.execute(items_query)
@@ -240,7 +237,6 @@ async def get_project_summary(
         currency = row.currency
         total = Decimal(str(row.total)) if row.total else Decimal("0")
         commission_val = Decimal(str(row.commission)) if row.commission else Decimal("0")
-        profit_val = Decimal(str(row.profit)) if row.profit else Decimal("0")
         paid = paid_by_currency.get(currency, Decimal("0"))
         invoiced = invoiced_by_currency.get(currency, Decimal("0"))
         remaining = total - paid
@@ -252,7 +248,7 @@ async def get_project_summary(
             paid=paid,
             remaining=remaining,
             commission=commission_val,
-            profit=profit_val if current_user.role == "admin" else None,
+            profit=None,
         )
         currencies.append(summary)
 

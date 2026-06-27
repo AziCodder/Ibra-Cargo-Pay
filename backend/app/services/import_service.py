@@ -25,7 +25,7 @@ TEMPLATE_HEADERS = [
     "details",  # Опционально
     "quantity",  # Обязательно, > 0
     "price",  # Обязательно, >= 0
-    "cost_price",  # Обязательно, >= 0
+    "cost_price",  # Опционально, >= 0; пусто — NULL (итог по цене)
     "currency",  # Обязательно: CNY / USD / RUB
     "commission",  # Опционально, >= 0
     "supplier_full_name",  # Опционально
@@ -36,7 +36,7 @@ TEMPLATE_LABELS_RU = {
     "details": "Детали",
     "quantity": "Количество *",
     "price": "Цена *",
-    "cost_price": "Себестоимость *",
+    "cost_price": "Себестоимость",
     "currency": "Валюта (CNY/USD/RUB) *",
     "commission": "Комиссия, %",
     "supplier_full_name": "Поставщик (ФИО из базы)",
@@ -170,8 +170,8 @@ async def parse_items_xlsx(
             if price is None or price < 0:
                 raise ValueError("Цена должна быть >= 0")
 
-            cost_price = _parse_decimal(row_dict.get("cost_price"))
-            if cost_price is None or cost_price < 0:
+            cost_price = _parse_decimal(row_dict.get("cost_price"), allow_none=True)
+            if cost_price is not None and cost_price < 0:
                 raise ValueError("Себестоимость должна быть >= 0")
 
             currency = str(row_dict.get("currency") or "").strip().upper()

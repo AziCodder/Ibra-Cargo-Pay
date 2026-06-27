@@ -77,6 +77,15 @@ class TestItemEditPermissions:
         assert upd.shared_access is False
 
 
+class TestImportCostPrice:
+    def test_cost_price_optional_in_excel(self):
+        from app.services.import_service import _parse_decimal
+
+        assert _parse_decimal(None, allow_none=True) is None
+        assert _parse_decimal("", allow_none=True) is None
+        assert _parse_decimal(80, allow_none=True) == Decimal("80")
+
+
 class TestSortOrderHelper:
     @pytest.mark.asyncio
     async def test_next_sort_order_starts_at_zero(self):
