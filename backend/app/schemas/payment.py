@@ -24,6 +24,10 @@ class PaymentReject(BaseModel):
     reason: str = Field(..., min_length=1, max_length=1000, description="Причина отклонения")
 
 
+class PaymentUpdate(BaseModel):
+    payment_date: date | None = None
+
+
 class PaymentOut(BaseModel):
     id: int
     payment_request_id: int
@@ -33,7 +37,7 @@ class PaymentOut(BaseModel):
     payment_date: date | None = None
     file_path: str | None = None
     file_name: str | None = None
-    status: PaymentStatus = "pending"
+    status: PaymentStatus = "confirmed"
     confirmed_by: int | None = None
     confirmed_at: datetime | None = None
     rejection_reason: str | None = None

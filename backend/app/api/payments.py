@@ -1,12 +1,7 @@
 """
-API платежей с workflow подтверждения.
+API платежей.
 
-Клиент создаёт платёж -> status='pending', админ получает уведомление.
-Админ подтверждает (/confirm) -> status='confirmed'.
-Админ отклоняет (/reject) с причиной -> status='rejected'.
-Клиенту отправляется уведомление о решении админа.
-
-remaining_amount учитывает ТОЛЬКО confirmed платежи.
+Все платежи создаются со status='confirmed' и сразу учитываются в remaining_amount.
 """
 
 from __future__ import annotations
@@ -17,14 +12,14 @@ import zipfile
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import get_current_user
 from app.core.permissions import can_delete_payment
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
@@ -32,7 +27,7 @@ from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
 from app.models.project_item import ProjectItem
 from app.models.user import User
-from app.schemas.payment import PaymentOut, PaymentReject
+from app.schemas.payment import PaymentOut, PaymentUpdate
 from app.services import audit_service, file_service, notification_service
 
 logger = logging.getLogger(__name__)
@@ -83,9 +78,16 @@ async def _get_admin_chat_ids(db: AsyncSession) -> list[int]:
     return [row[0] for row in result.all()]
 
 
-async def _get_creator_chat_id(user_id: int, db: AsyncSession) -> int | None:
-    user = await db.get(User, user_id)
-    return user.telegram_chat_id if user else None
+def _payment_info_txt(index: int, pay: Payment) -> str:
+    from datetime import timezone as _tz
+    lines = [
+        f"Платёж #{index}",
+        f"Сумма: {pay.amount} {pay.currency}",
+        f"Дата создания: {pay.created_at.astimezone(_tz.utc).strftime('%d.%m.%Y')}",
+        f"Дата оплаты: {pay.payment_date.strftime('%d.%m.%Y') if pay.payment_date else 'не указана'}",
+        f"Примечание: {pay.note or '—'}",
+    ]
+    return "\n".join(lines)
 
 
 @router_project.get("/download-all-zip")
@@ -136,28 +138,6 @@ async def download_all_project_payments_zip(
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="payments_project_{project_id}.zip"'},
     )
-
-
-_STATUS_RU = {
-    "pending": "Ожидает подтверждения",
-    "confirmed": "Подтверждён",
-    "rejected": "Отклонён",
-}
-
-
-def _payment_info_txt(index: int, pay: Payment) -> str:
-    from datetime import timezone as _tz
-    lines = [
-        f"Платёж #{index}",
-        f"Сумма: {pay.amount} {pay.currency}",
-        f"Статус: {_STATUS_RU.get(pay.status, pay.status)}",
-        f"Дата создания: {pay.created_at.astimezone(_tz.utc).strftime('%d.%m.%Y')}",
-        f"Дата оплаты: {pay.payment_date.strftime('%d.%m.%Y') if pay.payment_date else 'не указана'}",
-        f"Примечание: {pay.note or '—'}",
-    ]
-    if pay.status == "rejected" and pay.rejection_reason:
-        lines.append(f"Причина отклонения: {pay.rejection_reason}")
-    return "\n".join(lines)
 
 
 @router.get("/download-zip")
@@ -227,12 +207,7 @@ async def add_payment(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentOut:
-    """
-    Добавить платёж.
-
-    - Клиент -> платёж создаётся со статусом 'pending', админы уведомляются.
-    - Админ -> платёж сразу 'confirmed' (сам себе подтверждать не нужно).
-    """
+    """Добавить платёж — сразу confirmed, учитывается в остатке заявки."""
     if currency not in ("CNY", "USD", "RUB"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -241,19 +216,16 @@ async def add_payment(
 
     req = await _get_request_with_access(req_id, current_user, db)
 
-    # Валюта платежа должна совпадать с валютой заявки
     if currency != req.currency:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Валюта платежа ({currency}) не совпадает с валютой заявки ({req.currency})",
         )
 
-    # Проверка переплаты: сумма нового платежа + все pending/confirmed платежи
-    # не должна превышать total_amount заявки.
     existing_result = await db.execute(
         select(Payment.amount).where(
             Payment.payment_request_id == req_id,
-            Payment.status.in_(("pending", "confirmed")),
+            Payment.status == "confirmed",
         )
     )
     existing_total = sum((row[0] for row in existing_result.all()), Decimal("0"))
@@ -267,7 +239,6 @@ async def add_payment(
             ),
         )
 
-    # Читаем данные до commit
     project_name = req.project.name
     project_id = req.project_id
 
@@ -299,12 +270,7 @@ async def add_payment(
             )
         file_name_val = file_service.sanitize_filename(file.filename)
 
-    # Админ добавляет -> сразу confirmed, клиент -> pending
-    is_admin = current_user.role == "admin"
-    new_status = "confirmed" if is_admin else "pending"
-    confirmed_at_val = datetime.now(timezone.utc) if is_admin else None
-    confirmed_by_val = current_user.id if is_admin else None
-
+    now = datetime.now(timezone.utc)
     payment = Payment(
         payment_request_id=req_id,
         amount=amount,
@@ -313,15 +279,14 @@ async def add_payment(
         payment_date=payment_date,
         file_path=file_path_val,
         file_name=file_name_val,
-        status=new_status,
-        confirmed_by=confirmed_by_val,
-        confirmed_at=confirmed_at_val,
+        status="confirmed",
+        confirmed_by=current_user.id,
+        confirmed_at=now,
         created_by=current_user.id,
     )
     db.add(payment)
     await db.flush()
 
-    # Снимок ДО flush'а бы испортил id; после flush - но до expire
     after_snapshot = audit_service.entity_snapshot(payment)
 
     await audit_service.log_action(
@@ -336,7 +301,6 @@ async def add_payment(
     await db.commit()
     await db.refresh(payment)
 
-    # Получаем названия позиций заявки для уведомления
     item_names_result = await db.execute(
         select(ProjectItem.name)
         .join(PaymentRequestItem, PaymentRequestItem.project_item_id == ProjectItem.id)
@@ -344,145 +308,55 @@ async def add_payment(
     )
     item_names_str = ", ".join(row[0] for row in item_names_result.all())
 
-    # Presigned URL файла для уведомления (24 часа)
     file_url_for_notify: str | None = None
     if file_path_val:
         file_url_for_notify = await file_service.get_presigned_url(file_path_val, expires_in=86400)
 
-    # Уведомления
-    if is_admin:
-        admin_chat_ids = await _get_admin_chat_ids(db)
-        notification_service.notify_payment_added(
-            admin_chat_ids=admin_chat_ids,
-            project_name=project_name,
-            project_id=project_id,
-            req_id=req_id,
-            amount=payment.amount,
-            currency=payment.currency,
-            item_names=item_names_str or None,
-            note=note,
-            file_url=file_url_for_notify,
-        )
-    else:
-        admin_chat_ids = await _get_admin_chat_ids(db)
-        notification_service.notify_payment_pending(
-            admin_chat_ids=admin_chat_ids,
-            project_name=project_name,
-            project_id=project_id,
-            req_id=req_id,
-            amount=payment.amount,
-            currency=payment.currency,
-            client_login=current_user.login,
-            item_names=item_names_str or None,
-            note=note,
-            file_url=file_url_for_notify,
-        )
-
-    return PaymentOut.model_validate(payment)
-
-
-@router.post("/{pay_id}/confirm", response_model=PaymentOut)
-async def confirm_payment(
-    req_id: int,
-    pay_id: int,
-    current_user=Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-) -> PaymentOut:
-    """Админ подтверждает pending-платёж."""
-    req = await _get_request_with_access(req_id, current_user, db)
-
-    result = await db.execute(
-        select(Payment)
-        .where(Payment.id == pay_id, Payment.payment_request_id == req_id)
-        .options(selectinload(Payment.creator))
-    )
-    payment = result.scalar_one_or_none()
-    if not payment:
-        raise HTTPException(status_code=404, detail="Платёж не найден")
-
-    if payment.status != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Платёж уже обработан (статус: {payment.status})",
-        )
-
-    before = audit_service.entity_snapshot(payment)
-    payment.status = "confirmed"
-    payment.confirmed_by = current_user.id
-    payment.confirmed_at = datetime.now(timezone.utc)
-    payment.rejection_reason = None
-
-    # Данные для уведомления читаем до flush/commit
-    project_name = req.project.name
-    client_chat_id = await _get_creator_chat_id(payment.created_by, db)
-    amount = payment.amount
-    currency = payment.currency
-
-    await db.flush()
-    after = audit_service.entity_snapshot(payment)
-
-    await audit_service.log_action(
-        db,
-        user_id=current_user.id,
-        action="updated",
-        entity_type="payment",
-        entity_id=payment.id,
-        before=before,
-        after=after,
-    )
-
-    await db.commit()
-    await db.refresh(payment)
-
-    notification_service.notify_payment_confirmed(
-        client_chat_id=client_chat_id,
+    admin_chat_ids = await _get_admin_chat_ids(db)
+    notification_service.notify_payment_added(
+        admin_chat_ids=admin_chat_ids,
         project_name=project_name,
+        project_id=project_id,
         req_id=req_id,
-        amount=amount,
-        currency=currency,
+        amount=payment.amount,
+        currency=payment.currency,
+        item_names=item_names_str or None,
+        note=note,
+        file_url=file_url_for_notify,
     )
 
     return PaymentOut.model_validate(payment)
 
 
-@router.post("/{pay_id}/reject", response_model=PaymentOut)
-async def reject_payment(
+@router.patch("/{pay_id}", response_model=PaymentOut)
+async def update_payment(
     req_id: int,
     pay_id: int,
-    data: PaymentReject = Body(...),
-    current_user=Depends(require_admin),
+    data: PaymentUpdate,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaymentOut:
-    """Админ отклоняет pending-платёж с указанием причины."""
-    req = await _get_request_with_access(req_id, current_user, db)
+    """Изменить дату оплаты (admin или автор платежа)."""
+    await _get_request_with_access(req_id, current_user, db)
 
     result = await db.execute(
         select(Payment).where(
-            Payment.id == pay_id, Payment.payment_request_id == req_id
+            Payment.id == pay_id,
+            Payment.payment_request_id == req_id,
         )
     )
     payment = result.scalar_one_or_none()
     if not payment:
         raise HTTPException(status_code=404, detail="Платёж не найден")
 
-    if payment.status != "pending":
+    if current_user.role != "admin" and payment.created_by != current_user.id:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Платёж уже обработан (статус: {payment.status})",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет прав на изменение платежа",
         )
 
     before = audit_service.entity_snapshot(payment)
-    payment.status = "rejected"
-    payment.confirmed_by = current_user.id
-    payment.confirmed_at = datetime.now(timezone.utc)
-    payment.rejection_reason = data.reason.strip()
-
-    # Данные для уведомления
-    project_name = req.project.name
-    client_chat_id = await _get_creator_chat_id(payment.created_by, db)
-    amount = payment.amount
-    currency = payment.currency
-    reason_text = payment.rejection_reason
+    payment.payment_date = data.payment_date
 
     await db.flush()
     after = audit_service.entity_snapshot(payment)
@@ -499,16 +373,6 @@ async def reject_payment(
 
     await db.commit()
     await db.refresh(payment)
-
-    notification_service.notify_payment_rejected(
-        client_chat_id=client_chat_id,
-        project_name=project_name,
-        req_id=req_id,
-        amount=amount,
-        currency=currency,
-        reason=reason_text,
-    )
-
     return PaymentOut.model_validate(payment)
 
 

@@ -45,9 +45,9 @@ class Payment(Base):
     file_name: Mapped[str | None] = mapped_column(String(255))
     note: Mapped[str | None] = mapped_column(Text)
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    # Статус подтверждения: pending (ожидает), confirmed (подтверждён), rejected (отклонён)
+    # Статус: все новые платежи сразу confirmed (approval workflow убран)
     status: Mapped[str] = mapped_column(
-        String(10), nullable=False, default="pending", server_default="confirmed"
+        String(10), nullable=False, default="confirmed", server_default="confirmed"
     )
     confirmed_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

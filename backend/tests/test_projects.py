@@ -31,32 +31,3 @@ class TestProjectSchemas:
         )
         assert out.client_id is None
         assert out.client is None
-
-
-class TestCreatorChatId:
-    @pytest.mark.asyncio
-    async def test_returns_telegram_from_payment_creator(self):
-        from types import SimpleNamespace
-        from unittest.mock import AsyncMock
-
-        from app.api.payments import _get_creator_chat_id
-
-        user = SimpleNamespace(telegram_chat_id=12345)
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=user)
-
-        chat_id = await _get_creator_chat_id(7, db)
-
-        assert chat_id == 12345
-        db.get.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_returns_none_when_user_missing(self):
-        from unittest.mock import AsyncMock
-
-        from app.api.payments import _get_creator_chat_id
-
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
-
-        assert await _get_creator_chat_id(99, db) is None
