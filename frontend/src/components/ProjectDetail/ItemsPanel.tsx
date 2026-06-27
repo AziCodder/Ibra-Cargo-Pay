@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties, type HTMLAttributes } from 'react';
 import {
   Button,
   Divider,
@@ -20,17 +20,29 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   UploadOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
 } from '@ant-design/icons';
 import type { RcFile } from 'antd/es/upload';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   listItems,
   deleteItem,
   updateItem,
-  moveItemUp,
-  moveItemDown,
+  reorderItems,
   downloadItemsTemplate,
   importItems,
   type ImportResult,
@@ -98,11 +110,51 @@ function SummaryRow({ summary }: { summary: CurrencySummary }) {
   );
 }
 
-interface Props {
-  projectId: number;
+type RowProps = HTMLAttributes<HTMLTableRowElement> & { 'data-row-key'?: number };
+
+function SortableRow({ children, ...props }: RowProps) {
+  const id = props['data-row-key'];
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: id ?? 0 });
+
+  const style: CSSProperties = {
+    ...props.style,
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: 'grab',
+    ...(isDragging
+      ? {
+          position: 'relative',
+          zIndex: 999,
+          opacity: 0.6,
+          transform: `${CSS.Transform.toString(transform)} scale(1.03)`,
+          boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+          cursor: 'grabbing',
+        }
+      : {}),
+  };
+
+  return (
+    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </tr>
+  );
 }
 
-export default function ItemsPanel({ projectId }: Props) {
+interface Props {
+  projectId: number;
+  // Позиции, скрытые из заявок на оплату (тумблер «В оплатах» выключен).
+  hiddenItemIds: number[];
+  onToggleVisible: (itemId: number, visible: boolean) => void;
+  onSetAllVisible: (visible: boolean) => void;
+}
+
+export default function ItemsPanel({
+  projectId,
+  hiddenItemIds,
+  onToggleVisible,
+  onSetAllVisible,
+}: Props) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -169,53 +221,50 @@ export default function ItemsPanel({ projectId }: Props) {
     }
   };
 
-  const handleMove = async (itemId: number, direction: 'up' | 'down') => {
+  // Перетаскивание активируется удержанием строки ~0.5 секунды (long-press).
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { delay: 500, tolerance: 8 },
+    }),
+  );
+
+  // Менять порядок может любой пользователь с доступом к проекту
+  // (порядок — это отображение списка, не редактирование позиций).
+  const canReorder = items.length > 0;
+
+  // Тумблер «В оплатах»: какие позиции показывать в заявках на оплату (личный фильтр).
+  const hiddenSet = new Set(hiddenItemIds);
+  const allVisible = items.length > 0 && !items.some((i) => hiddenSet.has(i.id));
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = items.findIndex((i) => i.id === active.id);
+    const newIndex = items.findIndex((i) => i.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const previous = items;
+    const next = arrayMove(items, oldIndex, newIndex);
+    // Оптимистично обновляем порядок в кэше.
+    queryClient.setQueryData(['project-items', projectId], next);
+
     try {
-      if (direction === 'up') {
-        await moveItemUp(projectId, itemId);
-      } else {
-        await moveItemDown(projectId, itemId);
-      }
+      await reorderItems(
+        projectId,
+        next.map((i) => i.id),
+      );
       queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
       queryClient.invalidateQueries({ queryKey: ['payment-requests', projectId] });
-      message.success('Порядок обновлён');
     } catch (err: unknown) {
+      // Откат при ошибке.
+      queryClient.setQueryData(['project-items', projectId], previous);
       const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Ошибка');
+      message.error(e.response?.data?.detail ?? 'Не удалось изменить порядок');
     }
   };
 
   const columns = [
-    {
-      title: 'Порядок',
-      key: 'order',
-      width: 72,
-      render: (_: unknown, record: ProjectItem, index: number) =>
-        itemCanEdit(record, isAdmin) ? (
-          <Space size={2}>
-            <Button
-              size="small"
-              type="text"
-              icon={<ArrowUpOutlined />}
-              disabled={index === 0}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMove(record.id, 'up');
-              }}
-            />
-            <Button
-              size="small"
-              type="text"
-              icon={<ArrowDownOutlined />}
-              disabled={index === items.length - 1}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMove(record.id, 'down');
-              }}
-            />
-          </Space>
-        ) : null,
-    },
     {
       title: 'Наименование',
       dataIndex: 'name',
@@ -297,6 +346,22 @@ export default function ItemsPanel({ projectId }: Props) {
         );
       },
     },
+    {
+      title: 'В оплатах',
+      key: 'visible_in_payments',
+      width: 84,
+      align: 'center' as const,
+      render: (_: unknown, record: ProjectItem) => (
+        <Tooltip title={hiddenSet.has(record.id) ? 'Скрыта из заявок на оплату' : 'Показана в заявках на оплату'}>
+          <Switch
+            size="small"
+            checked={!hiddenSet.has(record.id)}
+            onClick={(_, e) => e.stopPropagation()}
+            onChange={(checked) => onToggleVisible(record.id, checked)}
+          />
+        </Tooltip>
+      ),
+    },
     ...(isAdmin
       ? [
           {
@@ -346,6 +411,14 @@ export default function ItemsPanel({ projectId }: Props) {
           Номенклатура
         </Text>
         <Space size="small" wrap>
+          {items.length > 0 && (
+            <Button
+              size="small"
+              onClick={() => onSetAllVisible(!allVisible)}
+            >
+              {allVisible ? 'Убрать выбор' : 'Выбрать все'}
+            </Button>
+          )}
           {isAdmin && (
             <>
               <Button
@@ -381,6 +454,27 @@ export default function ItemsPanel({ projectId }: Props) {
         <Spin />
       ) : items.length === 0 ? (
         <Empty description="Нет позиций" />
+      ) : canReorder ? (
+        <DndContext
+          sensors={sensors}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={items.map((i) => i.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <Table
+              rowKey="id"
+              size="small"
+              columns={columns}
+              dataSource={items}
+              pagination={false}
+              tableLayout="fixed"
+              components={{ body: { row: SortableRow } }}
+            />
+          </SortableContext>
+        </DndContext>
       ) : (
         <Table
           rowKey="id"

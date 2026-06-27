@@ -7,8 +7,12 @@ import type {
   ProjectUpdate,
 } from '../types';
 
-export type ProjectSortBy = 'name' | 'created_at';
+export type ProjectSortBy = 'name' | 'created_at' | 'manual';
 export type ProjectSortOrder = 'asc' | 'desc';
+
+export async function reorderProjects(projectIds: number[]): Promise<void> {
+  await client.post('/projects/reorder', { project_ids: projectIds });
+}
 
 export async function listProjects(params?: {
   status?: string;

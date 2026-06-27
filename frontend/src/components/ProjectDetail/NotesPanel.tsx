@@ -3,13 +3,13 @@ import {
   Button,
   Empty,
   Input,
-  List,
   Popconfirm,
   Radio,
   Space,
   Spin,
   Tag,
   Typography,
+  theme,
   message,
 } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
@@ -24,6 +24,7 @@ import type { NoteVisibility, ProjectNote } from '../../types';
 
 const { Text } = Typography;
 const { TextArea } = Input;
+const { useToken } = theme;
 
 interface Props {
   projectId: number;
@@ -31,6 +32,7 @@ interface Props {
 
 export default function NotesPanel({ projectId }: Props) {
   const queryClient = useQueryClient();
+  const { token } = useToken();
   const [newContent, setNewContent] = useState('');
   const [newVisibility, setNewVisibility] = useState<NoteVisibility>('private');
   const [creating, setCreating] = useState(false);
@@ -110,21 +112,38 @@ export default function NotesPanel({ projectId }: Props) {
     }
   };
 
+  const noteCardStyle: React.CSSProperties = {
+    background: token.colorFillQuaternary,
+    border: `1px solid ${token.colorBorderSecondary}`,
+    borderRadius: token.borderRadiusLG,
+    padding: '10px 12px',
+  };
+
   return (
     <div style={{ padding: '16px' }}>
       <Text strong style={{ fontSize: 15, display: 'block', marginBottom: 12 }}>
         Заметки
       </Text>
 
+      {/* Поле создания заметки */}
       <div style={{ marginBottom: 16 }}>
         <TextArea
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           placeholder="Новая заметка..."
-          rows={3}
+          autoSize={{ minRows: 2, maxRows: 8 }}
           maxLength={8000}
         />
-        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <div
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <Radio.Group
             value={newVisibility}
             onChange={(e) => setNewVisibility(e.target.value)}
@@ -145,68 +164,59 @@ export default function NotesPanel({ projectId }: Props) {
         </div>
       </div>
 
+      {/* Список заметок */}
       {isLoading ? (
         <Spin />
       ) : notes.length === 0 ? (
-        <Empty description="Нет заметок" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        <Empty
+          description="Нет заметок"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          style={{ margin: '8px 0' }}
+        />
       ) : (
-        <List
-          size="small"
-          dataSource={notes}
-          renderItem={(note) => (
-            <List.Item
-              actions={
-                note.can_edit
-                  ? [
-                      <Button
-                        key="edit"
-                        type="text"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => startEdit(note)}
-                      />,
-                      <Popconfirm
-                        key="del"
-                        title="Удалить заметку?"
-                        okText="Да"
-                        cancelText="Отмена"
-                        onConfirm={() => handleDelete(note.id)}
-                      >
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                      </Popconfirm>,
-                    ]
-                  : undefined
-              }
-            >
-              {editingId === note.id ? (
-                <div style={{ width: '100%' }}>
-                  <TextArea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={3}
-                    maxLength={8000}
-                  />
-                  <Space wrap style={{ marginTop: 8 }}>
-                    <Radio.Group
-                      value={editVisibility}
-                      onChange={(e) => setEditVisibility(e.target.value)}
-                      size="small"
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {notes.map((note) =>
+            editingId === note.id ? (
+              <div key={note.id} style={noteCardStyle}>
+                <TextArea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  autoSize={{ minRows: 2, maxRows: 8 }}
+                  maxLength={8000}
+                />
+                <Space wrap style={{ marginTop: 8 }}>
+                  <Radio.Group
+                    value={editVisibility}
+                    onChange={(e) => setEditVisibility(e.target.value)}
+                    size="small"
+                  >
+                    <Radio.Button value="private">Личная</Radio.Button>
+                    <Radio.Button value="shared">Общая</Radio.Button>
+                  </Radio.Group>
+                  <Button type="primary" size="small" loading={saving} onClick={handleUpdate}>
+                    Сохранить
+                  </Button>
+                  <Button size="small" onClick={() => setEditingId(null)}>
+                    Отмена
+                  </Button>
+                </Space>
+              </div>
+            ) : (
+              <div key={note.id} style={noteCardStyle}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    marginBottom: 6,
+                  }}
+                >
+                  <Space size={6} wrap style={{ minWidth: 0 }}>
+                    <Tag
+                      color={note.visibility === 'shared' ? 'blue' : 'default'}
+                      style={{ marginInlineEnd: 0 }}
                     >
-                      <Radio.Button value="private">Личная</Radio.Button>
-                      <Radio.Button value="shared">Общая</Radio.Button>
-                    </Radio.Group>
-                    <Button type="primary" size="small" loading={saving} onClick={handleUpdate}>
-                      Сохранить
-                    </Button>
-                    <Button size="small" onClick={() => setEditingId(null)}>
-                      Отмена
-                    </Button>
-                  </Space>
-                </div>
-              ) : (
-                <div style={{ width: '100%' }}>
-                  <Space size={8} wrap style={{ marginBottom: 4 }}>
-                    <Tag color={note.visibility === 'shared' ? 'blue' : 'default'}>
                       {note.visibility === 'shared' ? 'Общая' : 'Личная'}
                     </Tag>
                     <Text type="secondary" style={{ fontSize: 11 }}>
@@ -214,12 +224,39 @@ export default function NotesPanel({ projectId }: Props) {
                       {new Date(note.created_at).toLocaleString('ru-RU')}
                     </Text>
                   </Space>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{note.content}</div>
+                  {note.can_edit && (
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => startEdit(note)}
+                      />
+                      <Popconfirm
+                        title="Удалить заметку?"
+                        okText="Да"
+                        cancelText="Отмена"
+                        onConfirm={() => handleDelete(note.id)}
+                      >
+                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </div>
+                  )}
                 </div>
-              )}
-            </List.Item>
+                <div
+                  style={{
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {note.content}
+                </div>
+              </div>
+            ),
           )}
-        />
+        </div>
       )}
     </div>
   );

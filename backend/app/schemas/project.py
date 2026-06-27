@@ -1,7 +1,13 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+
+class ProjectReorderIn(BaseModel):
+    """Новый порядок проектов: список id в нужном порядке."""
+
+    project_ids: list[int] = Field(..., min_length=1)
 
 
 class ProjectCreate(BaseModel):

@@ -24,6 +24,8 @@ import {
   downloadProjectExport,
   getProject,
 } from '../api/projects';
+import { listItems } from '../api/projectItems';
+import { usePaymentRequestFilters } from '../hooks/usePaymentRequestFilters';
 import ItemsPanel from '../components/ProjectDetail/ItemsPanel';
 import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PaymentRequestsPanel from '../components/ProjectDetail/PaymentRequestsPanel';
@@ -59,6 +61,26 @@ export default function ProjectDetailPage() {
     queryFn: () => getProject(projectId),
     enabled: !!projectId,
   });
+
+  // Фильтры заявок на оплату, общие для панели номенклатуры и панели заявок.
+  const { filters, updateFilters } = usePaymentRequestFilters(projectId);
+
+  const { data: items = [] } = useQuery({
+    queryKey: ['project-items', projectId],
+    queryFn: () => listItems(projectId),
+    enabled: !!projectId,
+  });
+
+  const handleToggleVisible = (itemId: number, visible: boolean) => {
+    const hidden = new Set(filters.hiddenItemIds);
+    if (visible) hidden.delete(itemId);
+    else hidden.add(itemId);
+    updateFilters({ hiddenItemIds: [...hidden] });
+  };
+
+  const handleSetAllVisible = (visible: boolean) => {
+    updateFilters({ hiddenItemIds: visible ? [] : items.map((i) => i.id) });
+  };
 
   const handleDelete = async () => {
     try {
@@ -198,14 +220,26 @@ export default function ProjectDetailPage() {
               {
                 key: 'items',
                 label: 'Номенклатура',
-                children: <ItemsPanel projectId={projectId} />,
+                children: (
+                  <ItemsPanel
+                    projectId={projectId}
+                    hiddenItemIds={filters.hiddenItemIds}
+                    onToggleVisible={handleToggleVisible}
+                    onSetAllVisible={handleSetAllVisible}
+                  />
+                ),
               },
               {
                 key: 'payments',
                 label: 'Заявки на оплату',
                 children: (
                   <div style={{ background: token.colorBgLayout, minHeight: 200 }}>
-                    <PaymentRequestsPanel projectId={projectId} initialReqId={initialReqId} />
+                    <PaymentRequestsPanel
+                      projectId={projectId}
+                      initialReqId={initialReqId}
+                      filters={filters}
+                      updateFilters={updateFilters}
+                    />
                   </div>
                 ),
               },
@@ -265,32 +299,38 @@ export default function ProjectDetailPage() {
             background: token.colorBgContainer,
           }}
         >
-          <ItemsPanel projectId={projectId} />
+          <ItemsPanel
+            projectId={projectId}
+            hiddenItemIds={filters.hiddenItemIds}
+            onToggleVisible={handleToggleVisible}
+            onSetAllVisible={handleSetAllVisible}
+          />
         </div>
 
-        {/* Центр — заявки на оплату */}
+        {/* Правая колонка — заявки на оплату, под ними заметки */}
         <div
           style={{
             flex: 1,
-            minWidth: 280,
+            minWidth: 320,
             overflowY: 'auto',
             background: token.colorBgLayout,
-            borderRight: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <PaymentRequestsPanel projectId={projectId} initialReqId={initialReqId} />
-        </div>
+          <PaymentRequestsPanel
+            projectId={projectId}
+            initialReqId={initialReqId}
+            filters={filters}
+            updateFilters={updateFilters}
+          />
 
-        {/* Правая панель — заметки (~25%) */}
-        <div
-          style={{
-            width: '25%',
-            minWidth: 240,
-            overflowY: 'auto',
-            background: token.colorBgContainer,
-          }}
-        >
-          <NotesPanel projectId={projectId} />
+          <div
+            style={{
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              background: token.colorBgLayout,
+            }}
+          >
+            <NotesPanel projectId={projectId} />
+          </div>
         </div>
       </div>
 

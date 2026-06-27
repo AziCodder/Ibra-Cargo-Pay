@@ -1,4 +1,4 @@
-export type ProjectSortBy = 'name' | 'created_at';
+export type ProjectSortBy = 'name' | 'created_at' | 'manual';
 export type ProjectSortOrder = 'asc' | 'desc';
 
 export type ProjectSortState = {
@@ -14,7 +14,9 @@ export function readProjectSortFromStorage(): ProjectSortState {
     if (!raw) return { sortBy: 'created_at', sortOrder: 'desc' };
     const parsed = JSON.parse(raw) as ProjectSortState;
     if (
-      (parsed.sortBy === 'name' || parsed.sortBy === 'created_at') &&
+      (parsed.sortBy === 'name' ||
+        parsed.sortBy === 'created_at' ||
+        parsed.sortBy === 'manual') &&
       (parsed.sortOrder === 'asc' || parsed.sortOrder === 'desc')
     ) {
       return parsed;

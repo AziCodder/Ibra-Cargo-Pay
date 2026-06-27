@@ -41,6 +41,12 @@ class ProjectItemUpdate(BaseModel):
         return v
 
 
+class ItemReorderIn(BaseModel):
+    """Новый порядок позиций проекта: полный список id в нужном порядке."""
+
+    item_ids: list[int] = Field(..., min_length=1)
+
+
 class SupplierBrief(BaseModel):
     id: int
     full_name: str

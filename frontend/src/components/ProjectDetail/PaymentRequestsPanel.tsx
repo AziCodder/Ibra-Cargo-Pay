@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Card,
@@ -24,9 +24,7 @@ import PaymentRequestDetailModal from './PaymentRequestDetailModal';
 import type { PaymentRequestList, PaymentRequestPriority } from '../../types';
 import { fmt } from '../../utils/format';
 import {
-  readPaymentRequestFilters,
   toListParams,
-  writePaymentRequestFilters,
   type PaymentRequestFiltersState,
   type PaymentRequestSortBy,
   type PaymentRequestSortOrder,
@@ -68,38 +66,36 @@ const { useToken } = theme;
 interface Props {
   projectId: number;
   initialReqId?: number;
+  filters: PaymentRequestFiltersState;
+  updateFilters: (patch: Partial<PaymentRequestFiltersState>) => void;
 }
 
-export default function PaymentRequestsPanel({ projectId, initialReqId }: Props) {
+export default function PaymentRequestsPanel({
+  projectId,
+  initialReqId,
+  filters,
+  updateFilters,
+}: Props) {
   const { isAdmin } = useAuth();
   const queryClient = useQueryClient();
   const { token } = useToken();
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(initialReqId ?? null);
-  const [filters, setFilters] = useState<PaymentRequestFiltersState>(() =>
-    readPaymentRequestFilters(projectId),
-  );
-
-  const listParams = useMemo(() => toListParams(filters), [filters]);
-
-  useEffect(() => {
-    writePaymentRequestFilters(projectId, filters);
-  }, [projectId, filters]);
-
-  const { data: requests = [], isLoading } = useQuery({
-    queryKey: ['payment-requests', projectId, listParams],
-    queryFn: () => listPaymentRequests(projectId, listParams),
-  });
 
   const { data: projectItems = [] } = useQuery({
     queryKey: ['project-items', projectId],
     queryFn: () => listItems(projectId),
   });
 
-  const itemOptions = useMemo(
-    () => projectItems.map((item) => ({ value: item.id, label: item.name })),
-    [projectItems],
+  const listParams = useMemo(
+    () => toListParams(filters, projectItems.map((i) => i.id)),
+    [filters, projectItems],
   );
+
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['payment-requests', projectId, listParams],
+    queryFn: () => listPaymentRequests(projectId, listParams),
+  });
 
   const dateRangeValue: [Dayjs | null, Dayjs | null] | null =
     filters.dateFrom || filters.dateTo
@@ -108,10 +104,6 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
           filters.dateTo ? dayjs(filters.dateTo) : null,
         ]
       : null;
-
-  const updateFilters = (patch: Partial<PaymentRequestFiltersState>) => {
-    setFilters((prev) => ({ ...prev, ...patch }));
-  };
 
   const handleDelete = async (req: PaymentRequestList) => {
     try {
@@ -173,17 +165,6 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
             { value: 'paid', label: 'Оплачено' },
             { value: 'unpaid', label: 'Не оплачено' },
           ]}
-        />
-        <Select
-          size="small"
-          mode="multiple"
-          allowClear
-          placeholder="Номенклатура"
-          style={{ minWidth: 180, maxWidth: 320 }}
-          value={filters.itemIds}
-          options={itemOptions}
-          onChange={(ids: number[]) => updateFilters({ itemIds: ids })}
-          maxTagCount="responsive"
         />
         <Select
           size="small"

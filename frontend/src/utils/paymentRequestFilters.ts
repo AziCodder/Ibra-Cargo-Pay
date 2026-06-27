@@ -10,7 +10,9 @@ export type PaymentRequestFiltersState = {
   statusFilter: PaymentRequestStatusFilter;
   dateFrom: string | null;
   dateTo: string | null;
-  itemIds: number[];
+  // Позиции номенклатуры, скрытые из заявок на оплату (тумблер выключен).
+  // Пусто = показаны все. Новые позиции по умолчанию видимы.
+  hiddenItemIds: number[];
 };
 
 const DEFAULT_FILTERS: PaymentRequestFiltersState = {
@@ -19,7 +21,7 @@ const DEFAULT_FILTERS: PaymentRequestFiltersState = {
   statusFilter: 'all',
   dateFrom: null,
   dateTo: null,
-  itemIds: [],
+  hiddenItemIds: [],
 };
 
 export function paymentRequestFiltersKey(projectId: number): string {
@@ -40,8 +42,8 @@ export function readPaymentRequestFilters(projectId: number): PaymentRequestFilt
       parsed.statusFilter === 'paid' || parsed.statusFilter === 'unpaid'
         ? parsed.statusFilter
         : 'all';
-    const itemIds = Array.isArray(parsed.itemIds)
-      ? parsed.itemIds.filter((id): id is number => typeof id === 'number')
+    const hiddenItemIds = Array.isArray(parsed.hiddenItemIds)
+      ? parsed.hiddenItemIds.filter((id): id is number => typeof id === 'number')
       : [];
     return {
       sortBy,
@@ -49,7 +51,7 @@ export function readPaymentRequestFilters(projectId: number): PaymentRequestFilt
       statusFilter,
       dateFrom: typeof parsed.dateFrom === 'string' ? parsed.dateFrom : null,
       dateTo: typeof parsed.dateTo === 'string' ? parsed.dateTo : null,
-      itemIds,
+      hiddenItemIds,
     };
   } catch {
     return { ...DEFAULT_FILTERS };
@@ -63,13 +65,27 @@ export function writePaymentRequestFilters(
   localStorage.setItem(paymentRequestFiltersKey(projectId), JSON.stringify(filters));
 }
 
-export function toListParams(filters: PaymentRequestFiltersState): PaymentRequestListParams {
+export function toListParams(
+  filters: PaymentRequestFiltersState,
+  allItemIds: number[] = [],
+): PaymentRequestListParams {
+  // item_ids на бэкенде — список ВКЛЮЧАЕМЫХ позиций. Переводим набор скрытых
+  // в набор видимых. Пока позиции не загружены или ничего не скрыто — показываем всё.
+  let item_ids: number[] | undefined;
+  if (filters.hiddenItemIds.length === 0 || allItemIds.length === 0) {
+    item_ids = undefined;
+  } else {
+    const hidden = new Set(filters.hiddenItemIds);
+    const visible = allItemIds.filter((id) => !hidden.has(id));
+    // Скрыто всё — отправляем несуществующий id, чтобы вернулся пустой список.
+    item_ids = visible.length > 0 ? visible : [0];
+  }
   return {
     sort_by: filters.sortBy,
     sort_order: filters.sortOrder,
     status_filter: filters.statusFilter,
     date_from: filters.dateFrom ?? undefined,
     date_to: filters.dateTo ?? undefined,
-    item_ids: filters.itemIds.length > 0 ? filters.itemIds : undefined,
+    item_ids,
   };
 }

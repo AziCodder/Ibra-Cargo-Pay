@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,11 +15,13 @@ from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
 from app.models.project_item import ProjectItem
+from app.models.project_order import ProjectOrder
 from app.schemas.project import (
     CurrencySummary,
     ProjectCreate,
     ProjectListOut,
     ProjectOut,
+    ProjectReorderIn,
     ProjectSummary,
     ProjectUpdate,
 )
@@ -31,7 +33,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 @router.get("", response_model=ProjectListOut)
 async def list_projects(
     status: str | None = None,
-    sort_by: Literal["name", "created_at"] = "created_at",
+    sort_by: Literal["name", "created_at", "manual"] = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     page: int = 1,
     page_size: int = 50,
@@ -46,19 +48,84 @@ async def list_projects(
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar_one()
 
-    sort_col = Project.name if sort_by == "name" else Project.created_at
-    order = sort_col.asc() if sort_order == "asc" else sort_col.desc()
+    if sort_by == "manual":
+        # Ручной порядок ПЕРСОНАЛЬНЫЙ: позиция текущего пользователя.
+        # Непереставленные проекты идут после — по глобальному sort_order.
+        ordered = query.outerjoin(
+            ProjectOrder,
+            (ProjectOrder.project_id == Project.id)
+            & (ProjectOrder.user_id == current_user.id),
+        ).order_by(
+            case((ProjectOrder.position.is_(None), 1), else_=0),
+            ProjectOrder.position.asc(),
+            Project.sort_order.asc(),
+            Project.id.asc(),
+        )
+    else:
+        sort_col = Project.name if sort_by == "name" else Project.created_at
+        order = sort_col.asc() if sort_order == "asc" else sort_col.desc()
+        ordered = query.order_by(order)
 
     offset = (page - 1) * page_size
-    result = await db.execute(
-        query.order_by(order).offset(offset).limit(page_size)
-    )
+    result = await db.execute(ordered.offset(offset).limit(page_size))
     projects = result.scalars().all()
 
     return ProjectListOut(
         items=[ProjectOut.model_validate(p) for p in projects],
         total=total,
     )
+
+
+@router.post("/reorder", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def reorder_projects(
+    data: ProjectReorderIn,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Применить ручной порядок проектов.
+
+    Принимает список id проектов (обычно — текущий видимый список) в нужном
+    порядке и проставляет sort_order = индекс. Не сериализует ответ: после
+    commit ORM-объекты протухают (MissingGreenlet), фронтенд перезапрашивает список.
+    """
+    result = await db.execute(
+        select(Project).where(Project.id.in_(data.project_ids))
+    )
+    projects_by_id = {p.id: p for p in result.scalars().all()}
+
+    missing = set(data.project_ids) - set(projects_by_id.keys())
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Проекты не найдены: {sorted(missing)}",
+        )
+
+    # Порядок персональный: пишем позиции только текущему пользователю.
+    await db.execute(
+        sa_delete(ProjectOrder).where(
+            ProjectOrder.user_id == current_user.id,
+            ProjectOrder.project_id.in_(data.project_ids),
+        )
+    )
+    for index, project_id in enumerate(data.project_ids):
+        db.add(
+            ProjectOrder(
+                user_id=current_user.id,
+                project_id=project_id,
+                position=index,
+            )
+        )
+
+    await db.flush()
+    await audit_service.log_action(
+        db,
+        user_id=current_user.id,
+        action="updated",
+        entity_type="project",
+        entity_id=0,
+        after={"reordered": data.project_ids},
+    )
+    await db.commit()
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)

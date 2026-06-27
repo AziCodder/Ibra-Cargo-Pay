@@ -26,6 +26,7 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
   return (
     <Card
       hoverable
+      className="project-card"
       style={{ cursor: 'pointer', width: '100%', height: '100%' }}
       onClick={() => navigate(`/projects/${project.id}`)}
       actions={
@@ -92,7 +93,12 @@ export default function ProjectCard({ project, onDelete, onEdit }: Props) {
         {project.name}
       </Title>
       {project.description && (
-        <Text type="secondary" style={{ fontSize: 13, display: 'block' }}>
+        <Text
+          type="secondary"
+          className="project-card__desc"
+          style={{ fontSize: 13 }}
+          title={project.description}
+        >
           {project.description}
         </Text>
       )}

@@ -4,7 +4,7 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,8 +19,10 @@ from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
 from app.models.project_item import ProjectItem
+from app.models.project_item_order import ProjectItemOrder
 from app.models.supplier import Supplier
 from app.schemas.project_item import (
+    ItemReorderIn,
     ProjectItemAdminOut,
     ProjectItemClientOut,
     ProjectItemCreate,
@@ -144,11 +146,23 @@ async def list_items(
 ):
     await ensure_project_access(project_id, current_user, db)
 
+    # Порядок персональный: подмешиваем позицию текущего пользователя.
+    # Позиции, которые пользователь не двигал, идут после — по глобальному sort_order.
     result = await db.execute(
         select(ProjectItem)
+        .outerjoin(
+            ProjectItemOrder,
+            (ProjectItemOrder.project_item_id == ProjectItem.id)
+            & (ProjectItemOrder.user_id == current_user.id),
+        )
         .where(ProjectItem.project_id == project_id)
         .options(*_ITEM_LOAD)
-        .order_by(ProjectItem.sort_order.asc(), ProjectItem.id.asc())
+        .order_by(
+            case((ProjectItemOrder.position.is_(None), 1), else_=0),
+            ProjectItemOrder.position.asc(),
+            ProjectItem.sort_order.asc(),
+            ProjectItem.id.asc(),
+        )
     )
     items = result.scalars().all()
     item_ids = [i.id for i in items]
@@ -389,73 +403,62 @@ async def delete_item(
     await db.commit()
 
 
-async def _swap_sort_order(
-    item: ProjectItem,
-    neighbor: ProjectItem,
-    db: AsyncSession,
-    user,
-) -> None:
-    if not can_edit_item(user, item) or not can_edit_item(user, neighbor):
-        raise HTTPException(status_code=403, detail="Нет прав на изменение порядка")
-    item.sort_order, neighbor.sort_order = neighbor.sort_order, item.sort_order
+@router.post("/reorder", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def reorder_items(
+    project_id: int,
+    data: ItemReorderIn,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Применить новый порядок позиций целиком.
+
+    Принимает полный список id позиций проекта в нужном порядке и проставляет
+    sort_order = индекс. Устойчиво к дубликатам/нулевым sort_order — заодно
+    нормализует порядок «по сетке».
+    """
+    await ensure_project_access(project_id, current_user, db)
+
+    result = await db.execute(
+        select(ProjectItem)
+        .where(ProjectItem.project_id == project_id)
+        .options(*_ITEM_LOAD)
+    )
+    items = result.scalars().all()
+    items_by_id = {item.id: item for item in items}
+
+    if set(data.item_ids) != set(items_by_id.keys()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Список позиций не совпадает с позициями проекта",
+        )
+
+    # Порядок персональный: пишем позиции только для текущего пользователя,
+    # у других порядок не меняется. Доступно любому с доступом к проекту
+    # (порядок — это отображение списка, не редактирование позиций).
+    await db.execute(
+        sa_delete(ProjectItemOrder).where(
+            ProjectItemOrder.user_id == current_user.id,
+            ProjectItemOrder.project_item_id.in_(data.item_ids),
+        )
+    )
+    for index, item_id in enumerate(data.item_ids):
+        db.add(
+            ProjectItemOrder(
+                user_id=current_user.id,
+                project_item_id=item_id,
+                position=index,
+            )
+        )
+
     await db.flush()
 
-
-@router.post("/{item_id}/move-up")
-async def move_item_up(
-    project_id: int,
-    item_id: int,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await ensure_project_access(project_id, current_user, db)
-    item = await _get_item_or_404(project_id, item_id, db)
-
-    neighbor_result = await db.execute(
-        select(ProjectItem)
-        .where(
-            ProjectItem.project_id == project_id,
-            ProjectItem.sort_order == item.sort_order - 1,
-        )
-        .options(*_ITEM_LOAD)
+    await audit_service.log_action(
+        db,
+        user_id=current_user.id,
+        action="updated",
+        entity_type="project_item",
+        entity_id=project_id,
+        after={"reordered": data.item_ids, "project_id": project_id},
     )
-    neighbor = neighbor_result.scalar_one_or_none()
-    if not neighbor:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Позиция уже первая в списке",
-        )
 
-    await _swap_sort_order(item, neighbor, db, current_user)
     await db.commit()
-    return _serialize_item(item, current_user)
-
-
-@router.post("/{item_id}/move-down")
-async def move_item_down(
-    project_id: int,
-    item_id: int,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await ensure_project_access(project_id, current_user, db)
-    item = await _get_item_or_404(project_id, item_id, db)
-
-    neighbor_result = await db.execute(
-        select(ProjectItem)
-        .where(
-            ProjectItem.project_id == project_id,
-            ProjectItem.sort_order == item.sort_order + 1,
-        )
-        .options(*_ITEM_LOAD)
-    )
-    neighbor = neighbor_result.scalar_one_or_none()
-    if not neighbor:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Позиция уже последняя в списке",
-        )
-
-    await _swap_sort_order(item, neighbor, db, current_user)
-    await db.commit()
-    return _serialize_item(item, current_user)
