@@ -25,6 +25,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user, require_admin
+from app.core.permissions import can_delete_payment
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
@@ -40,6 +41,21 @@ MAX_PAYMENT_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
 
 router = APIRouter(prefix="/api/payment-requests/{req_id}/payments", tags=["payments"])
 router_project = APIRouter(prefix="/api/projects/{project_id}/payments", tags=["payments"])
+
+
+async def _load_payment_request_items(
+    req_id: int, db: AsyncSession
+) -> list[ProjectItem]:
+    result = await db.execute(
+        select(PaymentRequestItem)
+        .where(PaymentRequestItem.payment_request_id == req_id)
+        .options(selectinload(PaymentRequestItem.project_item))
+    )
+    items: list[ProjectItem] = []
+    for pri in result.scalars().all():
+        if pri.project_item:
+            items.append(pri.project_item)
+    return items
 
 
 async def _get_request_with_access(
@@ -514,18 +530,12 @@ async def delete_payment(
     if not payment:
         raise HTTPException(status_code=404, detail="Платёж не найден")
 
-    # Клиент может удалять только свои платежи (и только pending/rejected)
-    if current_user.role == "client":
-        if payment.created_by != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Можно удалять только собственные платежи",
-            )
-        if payment.status == "confirmed":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Нельзя удалить подтверждённый платёж",
-            )
+    request_items = await _load_payment_request_items(req_id, db)
+    if not can_delete_payment(current_user, payment, request_items):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет прав на удаление платежа",
+        )
 
     logger.info(
         "Payment deleted: id=%s, amount=%s %s, status=%s, req_id=%s, by user=%s (%s)",

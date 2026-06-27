@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_admin
-from app.core.permissions import ensure_project_access
+from app.core.dependencies import get_current_user
+from app.core.permissions import can_edit_payment_request, ensure_project_access
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_attachment import PaymentRequestAttachment
+from app.models.payment_request_item import PaymentRequestItem
+from app.models.project_item import ProjectItem
 from app.schemas.payment_request import AttachmentOut
 from app.services import file_service
 from app.services.file_service import upload_file
@@ -34,13 +37,21 @@ async def _get_request_or_404(req_id: int, project_id: int, db: AsyncSession) ->
     return req
 
 
+async def _load_request_items(req_id: int, db: AsyncSession) -> list[ProjectItem]:
+    result = await db.execute(
+        select(PaymentRequestItem)
+        .where(PaymentRequestItem.payment_request_id == req_id)
+        .options(selectinload(PaymentRequestItem.project_item))
+    )
+    return [pri.project_item for pri in result.scalars().all() if pri.project_item]
+
+
 @router.post("", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
 async def upload_attachment(
     project_id: int,
     req_id: int,
     file: UploadFile = File(...),
     current_user=Depends(get_current_user),
-    _admin=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> AttachmentOut:
     await ensure_project_access(project_id, current_user, db)
@@ -90,11 +101,18 @@ async def delete_attachment(
     req_id: int,
     att_id: int,
     current_user=Depends(get_current_user),
-    _admin=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await ensure_project_access(project_id, current_user, db)
     await _get_request_or_404(req_id, project_id, db)
+
+    if current_user.role != "admin":
+        items = await _load_request_items(req_id, db)
+        if not can_edit_payment_request(current_user, items):
+            raise HTTPException(
+                status_code=403,
+                detail="Нет прав на удаление вложения",
+            )
 
     result = await db.execute(
         select(PaymentRequestAttachment).where(

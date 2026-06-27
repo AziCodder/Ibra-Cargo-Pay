@@ -114,6 +114,7 @@ class PaymentRequestListOut(BaseModel):
     due_date: date | None = None
     priority: str
     remaining_amount: Decimal
+    paid_amount: Decimal
     items_names: str  # "Товар1, Товар2"
     created_by: int
     created_at: datetime

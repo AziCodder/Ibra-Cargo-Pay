@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import get_current_user
+from app.core.permissions import can_edit_payment_request, ensure_project_access
 from app.models.payment import Payment
 from app.models.payment_request import PaymentRequest
 from app.models.payment_request_item import PaymentRequestItem
@@ -28,6 +29,28 @@ from app.schemas.payment_request import (
 from app.services import audit_service, notification_service
 
 router = APIRouter(prefix="/api/projects/{project_id}/payment-requests", tags=["payment-requests"])
+
+
+async def _load_request_items(req: PaymentRequest, db: AsyncSession) -> list[ProjectItem]:
+    items: list[ProjectItem] = []
+    for pri in req.items:
+        item = pri.project_item
+        if item is None:
+            item = await db.get(ProjectItem, pri.project_item_id)
+        if item:
+            items.append(item)
+    return items
+
+
+async def _ensure_can_edit_request(
+    req: PaymentRequest, user, db: AsyncSession
+) -> None:
+    items = await _load_request_items(req, db)
+    if not can_edit_payment_request(user, items):
+        raise HTTPException(
+            status_code=403,
+            detail="Нет прав на изменение заявки: не все позиции доступны",
+        )
 
 
 async def _get_project_or_404(project_id: int, db: AsyncSession) -> Project:
@@ -162,6 +185,7 @@ async def list_payment_requests(
                 due_date=req.due_date,
                 priority=req.priority,
                 remaining_amount=remaining,
+                paid_amount=paid,
                 items_names=names,
                 created_by=req.created_by,
                 created_at=req.created_at,
@@ -175,9 +199,10 @@ async def list_payment_requests(
 async def create_payment_request(
     project_id: int,
     data: PaymentRequestCreate,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_project_access(project_id, current_user, db)
     project = await _get_project_or_404(project_id, db)
     project_name = project.name
 
@@ -311,11 +336,12 @@ async def update_payment_request(
     project_id: int,
     req_id: int,
     data: PaymentRequestUpdate,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
     req = await _load_request(req_id, project_id, db)
+    await _ensure_can_edit_request(req, current_user, db)
     before = audit_service.entity_snapshot(req)
 
     # ── Обновление позиций и пересчёт суммы ─────────────────────────────────
@@ -393,19 +419,13 @@ async def update_payment_request(
 async def delete_payment_request(
     project_id: int,
     req_id: int,
-    current_user=Depends(require_admin),
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    await _get_project_or_404(project_id, db)
+    await ensure_project_access(project_id, current_user, db)
 
-    result = await db.execute(
-        select(PaymentRequest).where(
-            PaymentRequest.id == req_id, PaymentRequest.project_id == project_id
-        )
-    )
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=404, detail="Заявка на оплату не найдена")
+    req = await _load_request(req_id, project_id, db)
+    await _ensure_can_edit_request(req, current_user, db)
 
     pay_count = await db.execute(
         select(func.count()).where(Payment.payment_request_id == req_id)
