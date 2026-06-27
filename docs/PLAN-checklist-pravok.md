@@ -1002,6 +1002,8 @@ params: {
 
 ### Шаг 5.4 — localStorage для фильтров заявок
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Цель:** фильтры не сбрасываются при обновлении страницы проекта.
 
 **Задачи:**
@@ -1017,6 +1019,8 @@ params: {
 ---
 
 ### Шаг 5.5 — Синхронизация порядка позиций в фильтре
+
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
 
 **Цель:** выпадающий список номенклатуры = ручной порядок.
 
@@ -1036,6 +1040,8 @@ params: {
 
 ### Шаг 6.1 — Backend move endpoints (если не сделано в 2.5)
 
+> ✅ Выполнено (блок 4) | Дата: 2026-06-27
+
 **Цель:** API для ↑↓.
 
 **Итог:** endpoints работают.
@@ -1043,6 +1049,8 @@ params: {
 ---
 
 ### Шаг 6.2 — Frontend API moveItemUp/Down
+
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
 
 **Задачи:**
 ```typescript
@@ -1060,6 +1068,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 6.3 — ItemsPanel: кнопки ↑↓
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Задачи:**
 1. Колонка «Порядок» с `ArrowUpOutlined` / `ArrowDownOutlined`
 2. disabled на index 0 / last
@@ -1073,6 +1083,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 6.4 — create_item: sort_order = max + 1
+
+> ✅ Выполнено (блок 4) | Дата: 2026-06-27
 
 **Цель:** новые позиции в конец списка.
 
@@ -1088,6 +1100,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 7.1 — Backend schema: убрать profit
 
+> ✅ Выполнено | Тесты: 42/42 | Дата: 2026-06-27
+
 **Файлы:** [`backend/app/schemas/project.py`](backend/app/schemas/project.py) — `CurrencySummary`
 
 **Итог:** API summary без поля profit.
@@ -1095,6 +1109,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 7.2 — Backend get_project_summary
+
+> ✅ Выполнено | Тесты: 42/42 | Дата: 2026-06-27
 
 **Задачи:** удалить вычисление и присвоение `profit_val`
 

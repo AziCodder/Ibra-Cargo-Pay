@@ -146,7 +146,6 @@ export interface CurrencySummary {
   paid: string;
   remaining: string;
   commission?: string | null;
-  profit?: string | null;
 }
 
 export interface ProjectSummary {

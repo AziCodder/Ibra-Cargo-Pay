@@ -101,7 +101,6 @@ export const ru = {
   calculations: {
     total: 'Итого',
     remaining: 'Остаток',
-    profit: 'Прибыль',
   },
   paymentRequests: {
     title: 'Платёжные запросы',

@@ -31,3 +31,10 @@ class TestProjectSchemas:
         )
         assert out.client_id is None
         assert out.client is None
+
+
+class TestProjectSummarySchema:
+    def test_currency_summary_without_profit(self):
+        from app.schemas.project import CurrencySummary
+
+        assert "profit" not in CurrencySummary.model_fields

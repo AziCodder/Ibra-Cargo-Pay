@@ -93,8 +93,6 @@ async def generate_project_excel(
     # ── Агрегация по валютам ──
     # total = price * quantity (без комиссии)
     # commission = price * commission% * quantity (отдельный расчёт)
-    # profit = (price - COALESCE(cost_price, price)) * quantity
-    effective_cost = func.coalesce(ProjectItem.cost_price, ProjectItem.price)
     summary_items_q = (
         select(
             ProjectItem.currency,
@@ -102,9 +100,6 @@ async def generate_project_excel(
             func.sum(
                 ProjectItem.price * (ProjectItem.commission / 100) * ProjectItem.quantity
             ).label("commission"),
-            func.sum(
-                (ProjectItem.price - effective_cost) * ProjectItem.quantity
-            ).label("profit"),
         )
         .where(ProjectItem.project_id == project_id)
         .group_by(ProjectItem.currency)
@@ -113,7 +108,6 @@ async def generate_project_excel(
         row.currency: (
             Decimal(str(row.total or 0)),
             Decimal(str(row.commission or 0)),
-            Decimal(str(row.profit or 0)),
         )
         for row in (await db.execute(summary_items_q)).all()
     }
@@ -154,7 +148,6 @@ async def generate_project_excel(
             "Валюта",
             "Сумма",
             "Сумма с комиссией",
-            "Прибыль",
         ]
     else:
         headers = [
@@ -177,8 +170,6 @@ async def generate_project_excel(
         effective_price = item.price * (Decimal("1") + item.commission / Decimal("100"))
         line_total_with_commission = effective_price * item.quantity
         if is_admin:
-            effective_cost = item.cost_price if item.cost_price is not None else item.price
-            profit = (item.price - effective_cost) * item.quantity
             ws_items.append(
                 [
                     idx,
@@ -192,7 +183,6 @@ async def generate_project_excel(
                     item.currency,
                     float(line_total),
                     float(line_total_with_commission),
-                    float(profit),
                 ]
             )
         else:
@@ -263,27 +253,17 @@ async def generate_project_excel(
     _auto_size(ws_req, len(req_headers))
 
     # ——— Лист «Сводка по валютам» ———
-    # Клиент видит комиссию, но не видит прибыль
     ws_sum = wb.create_sheet("Сводка по валютам")
-    sum_headers = (
-        ["Валюта", "Итого", "Оплачено", "Остаток", "Комиссия", "Прибыль"]
-        if is_admin
-        else ["Валюта", "Итого", "Оплачено", "Остаток", "Комиссия"]
-    )
+    sum_headers = ["Валюта", "Итого", "Оплачено", "Остаток", "Комиссия"]
     ws_sum.append(sum_headers)
     _apply_header_style(ws_sum, 1, len(sum_headers))
 
-    for currency, (total, commission, profit) in sorted(summary_items.items()):
+    for currency, (total, commission) in sorted(summary_items.items()):
         paid = summary_paid.get(currency, Decimal("0"))
         remaining = total - paid
-        if is_admin:
-            ws_sum.append(
-                [currency, float(total), float(paid), float(remaining), float(commission), float(profit)]
-            )
-        else:
-            ws_sum.append(
-                [currency, float(total), float(paid), float(remaining), float(commission)]
-            )
+        ws_sum.append(
+            [currency, float(total), float(paid), float(remaining), float(commission)]
+        )
     _auto_size(ws_sum, len(sum_headers))
 
     # ── Заголовок над позициями (для контекста) ──

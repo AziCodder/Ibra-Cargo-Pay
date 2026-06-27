@@ -92,7 +92,6 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
   const notInvoiced = totalAmount - invoicedAmount;           // ещё не выставлено
   const totalRemaining = totalAmount - paidAmount;            // общий остаток
   const commissionAmount = price * quantity * (commission / 100);
-  const profitAmount = isAdmin && costPrice !== null ? (price - costPrice) * quantity : null;
 
   return (
     <>
@@ -205,13 +204,6 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
               {commissionAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
             </Text>
           </Descriptions.Item>
-          {isAdmin && profitAmount !== null && (
-            <Descriptions.Item label="Прибыль">
-              <Text type="success" strong>
-                {profitAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}{currency}
-              </Text>
-            </Descriptions.Item>
-          )}
         </Descriptions>
 
         {/* Требования */}

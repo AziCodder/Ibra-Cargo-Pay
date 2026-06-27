@@ -20,6 +20,8 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   UploadOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
 } from '@ant-design/icons';
 import type { RcFile } from 'antd/es/upload';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -27,6 +29,8 @@ import {
   listItems,
   deleteItem,
   updateItem,
+  moveItemUp,
+  moveItemDown,
   downloadItemsTemplate,
   importItems,
   type ImportResult,
@@ -49,7 +53,7 @@ function fmtNum(v: string | number | undefined | null, decimals = 2): string {
   return n.toLocaleString('ru-RU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
-function SummaryRow({ summary, isAdmin }: { summary: CurrencySummary; isAdmin: boolean }) {
+function SummaryRow({ summary }: { summary: CurrencySummary }) {
   const total = parseFloat(summary.total);
   const invoiced = parseFloat(summary.invoiced ?? '0');
   const paid = parseFloat(summary.paid);
@@ -86,17 +90,6 @@ function SummaryRow({ summary, isAdmin }: { summary: CurrencySummary; isAdmin: b
             <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               Комиссия: {fmt(summary.commission, currency)}
-            </Text>
-          </>
-        )}
-        {isAdmin && summary.profit != null && (
-          <>
-            <Text type="secondary" style={{ fontSize: 12 }}>·</Text>
-            <Text style={{ fontSize: 12 }}>
-              Прибыль:{' '}
-              <Text type="success" style={{ fontSize: 12 }}>
-                {fmt(summary.profit, currency)}
-              </Text>
             </Text>
           </>
         )}
@@ -176,7 +169,53 @@ export default function ItemsPanel({ projectId }: Props) {
     }
   };
 
+  const handleMove = async (itemId: number, direction: 'up' | 'down') => {
+    try {
+      if (direction === 'up') {
+        await moveItemUp(projectId, itemId);
+      } else {
+        await moveItemDown(projectId, itemId);
+      }
+      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['payment-requests', projectId] });
+      message.success('Порядок обновлён');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Ошибка');
+    }
+  };
+
   const columns = [
+    {
+      title: 'Порядок',
+      key: 'order',
+      width: 72,
+      render: (_: unknown, record: ProjectItem, index: number) =>
+        itemCanEdit(record, isAdmin) ? (
+          <Space size={2}>
+            <Button
+              size="small"
+              type="text"
+              icon={<ArrowUpOutlined />}
+              disabled={index === 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMove(record.id, 'up');
+              }}
+            />
+            <Button
+              size="small"
+              type="text"
+              icon={<ArrowDownOutlined />}
+              disabled={index === items.length - 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleMove(record.id, 'down');
+              }}
+            />
+          </Space>
+        ) : null,
+    },
     {
       title: 'Наименование',
       dataIndex: 'name',
@@ -359,7 +398,7 @@ export default function ItemsPanel({ projectId }: Props) {
           <Divider style={{ margin: '12px 0' }} />
           <div>
             {summary.currencies.map((s) => (
-              <SummaryRow key={s.currency} summary={s} isAdmin={isAdmin} />
+              <SummaryRow key={s.currency} summary={s} />
             ))}
           </div>
         </>

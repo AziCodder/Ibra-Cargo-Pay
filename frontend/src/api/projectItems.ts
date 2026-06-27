@@ -32,6 +32,20 @@ export async function deleteItem(projectId: number, itemId: number): Promise<voi
   await client.delete(`/projects/${projectId}/items/${itemId}`);
 }
 
+export async function moveItemUp(projectId: number, itemId: number): Promise<ProjectItem> {
+  const res = await client.post<ProjectItem>(
+    `/projects/${projectId}/items/${itemId}/move-up`,
+  );
+  return res.data;
+}
+
+export async function moveItemDown(projectId: number, itemId: number): Promise<ProjectItem> {
+  const res = await client.post<ProjectItem>(
+    `/projects/${projectId}/items/${itemId}/move-down`,
+  );
+  return res.data;
+}
+
 // Требования
 export async function listRequirements(
   projectId: number,

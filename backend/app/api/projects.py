@@ -248,7 +248,6 @@ async def get_project_summary(
             paid=paid,
             remaining=remaining,
             commission=commission_val,
-            profit=None,
         )
         currencies.append(summary)
 

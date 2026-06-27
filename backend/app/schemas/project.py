@@ -63,8 +63,7 @@ class CurrencySummary(BaseModel):
     invoiced: Decimal = Decimal("0")   # выставлено счетов (сумма по заявкам)
     paid: Decimal
     remaining: Decimal
-    commission: Decimal | None = None  # None для клиента
-    profit: Decimal | None = None      # None для клиента
+    commission: Decimal | None = None
 
 
 class ProjectSummary(BaseModel):
