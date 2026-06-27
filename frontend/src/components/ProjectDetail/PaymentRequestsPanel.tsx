@@ -185,6 +185,8 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
                     display: 'flex',
                     justifyContent: 'space-between',
                     marginBottom: 6,
+                    flexWrap: 'wrap',
+                    gap: 8,
                   }}
                 >
                   <div>
@@ -192,6 +194,14 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
                       Всего:{' '}
                     </Text>
                     <Text strong>{fmt(req.total_amount, req.currency)}</Text>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Фактически оплачено:{' '}
+                    </Text>
+                    <Text>
+                      {fmt(req.paid_amount ?? String(paid), req.currency)}
+                    </Text>
                   </div>
                   <div>
                     <Text type="secondary" style={{ fontSize: 12 }}>

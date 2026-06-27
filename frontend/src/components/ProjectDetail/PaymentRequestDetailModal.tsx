@@ -20,10 +20,11 @@ import {
   Typography,
   Upload,
   message,
+  theme,
 } from 'antd';
 import type { UploadFile } from 'antd';
 import type { RcFile } from 'antd/es/upload';
-import { isPaymentFileSizeValid } from '../../utils/file';
+import { isFileSizeValid, isPaymentFileSizeValid } from '../../utils/file';
 import {
   CopyOutlined,
   DeleteOutlined,
@@ -41,14 +42,14 @@ import {
   deletePaymentRequest,
   getPaymentRequest,
   updatePaymentRequest,
+  uploadAttachment,
 } from '../../api/paymentRequests';
 import { listItems } from '../../api/projectItems';
 import {
   addPayment,
-  confirmPayment,
   deletePayment,
   downloadPaymentsZip,
-  rejectPayment,
+  updatePayment,
 } from '../../api/payments';
 import { getFileDownloadUrl } from '../../api/files';
 import {
@@ -57,7 +58,7 @@ import {
   listComments,
 } from '../../api/paymentRequestComments';
 import { useAuth } from '../../contexts/AuthContext';
-import type { Currency, PaymentRequestPriority, PaymentStatus } from '../../types';
+import type { Currency, PaymentRequestPriority } from '../../types';
 import { fmt } from '../../utils/format';
 import dayjs, { type Dayjs } from 'dayjs';
 
@@ -84,19 +85,9 @@ const PRIORITY_COLOR: Record<PaymentRequestPriority, string> = {
   deferred: 'default',
 };
 
-const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
-  pending: 'Ожидает подтверждения',
-  confirmed: 'Подтверждён',
-  rejected: 'Отклонён',
-};
-const PAYMENT_STATUS_COLOR: Record<PaymentStatus, string> = {
-  pending: 'orange',
-  confirmed: 'green',
-  rejected: 'red',
-};
-
 const { Text, Paragraph } = Typography;
 const { useBreakpoint } = Grid;
+const { useToken } = theme;
 
 interface Props {
   open: boolean;
@@ -115,6 +106,7 @@ export default function PaymentRequestDetailModal({
 }: Props) {
   const { isAdmin, user } = useAuth();
   const queryClient = useQueryClient();
+  const { token } = useToken();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [editMode, setEditMode] = useState(false);
@@ -128,10 +120,8 @@ export default function PaymentRequestDetailModal({
   const [paymentFile, setPaymentFile] = useState<UploadFile[]>([]);
   const [paymentDate, setPaymentDate] = useState<Dayjs | null>(null);
   const [deletingPay, setDeletingPay] = useState<number | null>(null);
-  const [confirmingPay, setConfirmingPay] = useState<number | null>(null);
-  const [rejectingPay, setRejectingPay] = useState<number | null>(null);
-  const [rejectModalPayId, setRejectModalPayId] = useState<number | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
+  const [updatingPayId, setUpdatingPayId] = useState<number | null>(null);
+  const [uploadingAtt, setUploadingAtt] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [commentLoading, setCommentLoading] = useState(false);
   const [deletingComment, setDeletingComment] = useState<number | null>(null);
@@ -174,20 +164,10 @@ export default function PaymentRequestDetailModal({
 
   const isCompleted = req ? parseFloat(req.remaining_amount) <= 0 : false;
 
-  // Сумма уже существующих pending-платежей (confirmed уже вычтены из remaining_amount).
-  // Учитываем pending, чтобы клиент не мог суммарно создать платежей больше остатка.
-  const pendingPaymentsTotal = useMemo(() => {
-    if (!req) return 0;
-    return req.payments
-      .filter((p) => p.status === 'pending')
-      .reduce((sum, p) => sum + parseFloat(p.amount), 0);
-  }, [req]);
-
-  // Доступный остаток для нового платежа (с учётом pending).
   const availableForPayment = useMemo(() => {
     if (!req) return 0;
-    return Math.max(0, parseFloat(req.remaining_amount) - pendingPaymentsTotal);
-  }, [req, pendingPaymentsTotal]);
+    return Math.max(0, parseFloat(req.remaining_amount));
+  }, [req]);
 
   // Текущее значение суммы и валюты из формы добавления платежа.
   const watchedPaymentAmount = Form.useWatch('amount', addPaymentForm) as number | undefined;
@@ -414,7 +394,7 @@ export default function PaymentRequestDetailModal({
     setAddPaymentLoading(true);
     try {
       const file = paymentFile[0]?.originFileObj ?? null;
-      const created = await addPayment(reqId, {
+      await addPayment(reqId, {
         amount: values.amount,
         currency: values.currency,
         note: values.note || null,
@@ -427,11 +407,7 @@ export default function PaymentRequestDetailModal({
       setPaymentFile([]);
       setPaymentDate(null);
       setAddPaymentOpen(false);
-      if (created.status === 'pending') {
-        message.success('Платёж отправлен на подтверждение');
-      } else {
-        message.success('Платёж добавлен');
-      }
+      message.success('Платёж добавлен');
     } catch (err: unknown) {
       message.error(_extractErrorMessage(err, 'Ошибка при добавлении платежа'));
     } finally {
@@ -455,51 +431,35 @@ export default function PaymentRequestDetailModal({
     }
   };
 
-  // ── Подтверждение платежа (admin) ────────────────────────────────────────────
-
-  const handleConfirmPayment = async (payId: number) => {
-    setConfirmingPay(payId);
+  const handleUpdatePaymentDate = async (payId: number, date: Dayjs | null) => {
+    setUpdatingPayId(payId);
     try {
-      await confirmPayment(reqId, payId);
+      await updatePayment(reqId, payId, {
+        payment_date: date ? date.format('YYYY-MM-DD') : null,
+      });
       queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
       onChanged();
-      message.success('Платёж подтверждён');
+      message.success('Дата оплаты обновлена');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Не удалось выполнить операцию');
+      message.error(_extractErrorMessage(err, 'Ошибка'));
     } finally {
-      setConfirmingPay(null);
+      setUpdatingPayId(null);
     }
   };
 
-  // ── Отклонение платежа (admin) ───────────────────────────────────────────────
-
-  const openRejectModal = (payId: number) => {
-    setRejectReason('');
-    setRejectModalPayId(payId);
-  };
-
-  const handleRejectPayment = async () => {
-    if (rejectModalPayId === null) return;
-    const reason = rejectReason.trim();
-    if (!reason) {
-      message.warning('Укажите причину отклонения');
-      return;
-    }
-    setRejectingPay(rejectModalPayId);
+  const handleUploadAttachment = async (file: RcFile) => {
+    if (!isFileSizeValid(file)) return Upload.LIST_IGNORE;
+    setUploadingAtt(true);
     try {
-      await rejectPayment(reqId, rejectModalPayId, reason);
+      await uploadAttachment(projectId, reqId, file);
       queryClient.invalidateQueries({ queryKey: ['payment-request-detail', reqId] });
-      onChanged();
-      message.success('Платёж отклонён');
-      setRejectModalPayId(null);
-      setRejectReason('');
+      message.success('Файл добавлен');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Не удалось выполнить операцию');
+      message.error(_extractErrorMessage(err, 'Ошибка загрузки'));
     } finally {
-      setRejectingPay(null);
+      setUploadingAtt(false);
     }
+    return false;
   };
 
   // ── Заголовок модального окна ───────────────────────────────────────────────
@@ -772,61 +732,71 @@ export default function PaymentRequestDetailModal({
           />
 
           {/* Вложения */}
-          {(req.attachments.length > 0 || req.attachments.length < 3) && (
-            <>
-              <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
-                Вложения ({req.attachments.length}/3)
-              </Divider>
-              {req.attachments.length === 0 ? (
-                <Text type="secondary" style={{ fontSize: 13 }}>
-                  Нет вложений
-                </Text>
-              ) : (
-                <List
-                  size="small"
-                  dataSource={req.attachments}
-                  renderItem={(att) => (
-                    <List.Item
-                      actions={[
-                        <Button
-                          key="dl"
-                          type="text"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownloadFile(att.file_path)}
-                          title="Скачать"
-                        />,
-                        ...(req.can_edit || isAdmin
-                          ? [
-                              <Popconfirm
-                                key="del"
-                                title="Удалить файл?"
-                                okText="Да"
-                                cancelText="Отмена"
-                                onConfirm={() => handleDeleteAttachment(att.id)}
-                              >
-                                <Button
-                                  type="text"
-                                  size="small"
-                                  danger
-                                  icon={<DeleteOutlined />}
-                                  loading={deletingAtt === att.id}
-                                />
-                              </Popconfirm>,
-                            ]
-                          : []),
-                      ]}
-                    >
-                      <Space>
-                        <PaperClipOutlined />
-                        <Text>{att.file_name}</Text>
-                      </Space>
-                    </List.Item>
-                  )}
-                />
-              )}
-            </>
-          )}
+          <>
+            <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
+              Вложения ({req.attachments.length}/3)
+            </Divider>
+            {req.attachments.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                Нет вложений
+              </Text>
+            ) : (
+              <List
+                size="small"
+                dataSource={req.attachments}
+                renderItem={(att) => (
+                  <List.Item
+                    actions={[
+                      <Button
+                        key="dl"
+                        type="text"
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={() => handleDownloadFile(att.file_path)}
+                        title="Скачать"
+                      />,
+                      ...(req.can_edit || isAdmin
+                        ? [
+                            <Popconfirm
+                              key="del"
+                              title="Удалить файл?"
+                              okText="Да"
+                              cancelText="Отмена"
+                              onConfirm={() => handleDeleteAttachment(att.id)}
+                            >
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                loading={deletingAtt === att.id}
+                              />
+                            </Popconfirm>,
+                          ]
+                        : []),
+                    ]}
+                  >
+                    <Space>
+                      <PaperClipOutlined />
+                      <Text>{att.file_name}</Text>
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            )}
+            {req.attachments.length < 3 && (
+              <Upload
+                showUploadList={false}
+                beforeUpload={handleUploadAttachment}
+                disabled={uploadingAtt}
+                style={{ marginTop: 8 }}
+              >
+                <Button size="small" icon={<UploadOutlined />} loading={uploadingAtt}>
+                  Добавить файл
+                </Button>
+              </Upload>
+            )}
+          </>
 
           {/* Платежи */}
           <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
@@ -871,9 +841,8 @@ export default function PaymentRequestDetailModal({
               })}
               renderItem={(pay) => {
                 const isOwner = pay.created_by === user?.id;
-                // admin может удалять любой; client только свои и только не confirmed
                 const canDelete = isAdmin || (isOwner && (req.can_edit ?? false));
-                const canConfirmReject = isAdmin && pay.status === 'pending';
+                const canEditDate = isAdmin || isOwner;
                 return (
                   <List.Item
                     actions={[
@@ -887,34 +856,6 @@ export default function PaymentRequestDetailModal({
                               onClick={() => pay.file_path && handleDownloadFile(pay.file_path)}
                               title="Скачать файл платежа"
                             />,
-                          ]
-                        : []),
-                      ...(canConfirmReject
-                        ? [
-                            <Popconfirm
-                              key="confirm"
-                              title="Подтвердить платёж?"
-                              okText="Да"
-                              cancelText="Отмена"
-                              onConfirm={() => handleConfirmPayment(pay.id)}
-                            >
-                              <Button
-                                type="primary"
-                                size="small"
-                                loading={confirmingPay === pay.id}
-                              >
-                                Подтвердить
-                              </Button>
-                            </Popconfirm>,
-                            <Button
-                              key="reject"
-                              danger
-                              size="small"
-                              loading={rejectingPay === pay.id}
-                              onClick={() => openRejectModal(pay.id)}
-                            >
-                              Отклонить
-                            </Button>,
                           ]
                         : []),
                       ...(canDelete
@@ -943,39 +884,36 @@ export default function PaymentRequestDetailModal({
                         <Text strong style={{ whiteSpace: 'nowrap' }}>
                           {fmt(pay.amount, pay.currency)}
                         </Text>
-                        <Tag color={PAYMENT_STATUS_COLOR[pay.status]}>
-                          {PAYMENT_STATUS_LABEL[pay.status]}
-                        </Tag>
                         {pay.file_name && (
                           <Text type="secondary" style={{ fontSize: 11 }} title={pay.file_name}>
                             <PaperClipOutlined /> {pay.file_name}
                           </Text>
                         )}
                         {pay.note && <Text type="secondary">{pay.note}</Text>}
-                        <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                        <Text style={{ fontSize: 12, color: token.colorText, whiteSpace: 'nowrap' }}>
                           {new Date(pay.created_at).toLocaleDateString('ru-RU')}
                         </Text>
                       </Space>
-                      {pay.payment_date ? (
-                        <div style={{ marginTop: 2 }}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
+                      <div style={{ marginTop: 4 }}>
+                        {canEditDate ? (
+                          <DatePicker
+                            value={pay.payment_date ? dayjs(pay.payment_date) : null}
+                            format="DD.MM.YYYY"
+                            placeholder="Дата оплаты"
+                            size="small"
+                            style={{ width: 160 }}
+                            onChange={(d) => handleUpdatePaymentDate(pay.id, d)}
+                            allowClear
+                            disabled={updatingPayId === pay.id}
+                          />
+                        ) : pay.payment_date ? (
+                          <Text style={{ color: token.colorText }}>
                             Дата оплаты: {dayjs(pay.payment_date).format('DD.MM.YYYY')}
                           </Text>
-                        </div>
-                      ) : (
-                        <div style={{ marginTop: 2 }}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Дата оплаты не указана
-                          </Text>
-                        </div>
-                      )}
-                      {pay.status === 'rejected' && pay.rejection_reason && (
-                        <div style={{ marginTop: 4 }}>
-                          <Text type="danger" style={{ fontSize: 12 }}>
-                            Причина отклонения: {pay.rejection_reason}
-                          </Text>
-                        </div>
-                      )}
+                        ) : (
+                          <Text style={{ color: token.colorText }}>Дата оплаты не указана</Text>
+                        )}
+                      </div>
                     </div>
                   </List.Item>
                 );
@@ -1020,7 +958,7 @@ export default function PaymentRequestDetailModal({
                       <Input placeholder="Примечание (необязательно)" />
                     </Form.Item>
                   </div>
-                  <div style={{ marginBottom: 8 }}>
+                  <Form.Item label="Дата оплаты" style={{ marginBottom: 8 }}>
                     <DatePicker
                       value={paymentDate}
                       onChange={(d) => setPaymentDate(d)}
@@ -1029,7 +967,7 @@ export default function PaymentRequestDetailModal({
                       style={{ width: '100%' }}
                       allowClear
                     />
-                  </div>
+                  </Form.Item>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     <Upload
                       showUploadList={false}
@@ -1072,17 +1010,6 @@ export default function PaymentRequestDetailModal({
                             })}{' '}
                             {req.currency}
                           </b>
-                          {pendingPaymentsTotal > 0 && (
-                            <>
-                              {' '}
-                              (с учётом платежей на подтверждении:{' '}
-                              {pendingPaymentsTotal.toLocaleString('ru-RU', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}{' '}
-                              {req.currency})
-                            </>
-                          )}
                           .
                         </span>
                       }
@@ -1200,33 +1127,6 @@ export default function PaymentRequestDetailModal({
           </div>
         </>
       )}
-
-      {/* Модалка отклонения платежа */}
-      <Modal
-        open={rejectModalPayId !== null}
-        title="Отклонить платёж"
-        okText="Отклонить"
-        cancelText="Отмена"
-        okButtonProps={{ danger: true, loading: rejectingPay !== null }}
-        onOk={handleRejectPayment}
-        onCancel={() => {
-          setRejectModalPayId(null);
-          setRejectReason('');
-        }}
-        destroyOnClose
-      >
-        <Paragraph>
-          Укажите причину отклонения — клиент получит уведомление с этим сообщением.
-        </Paragraph>
-        <Input.TextArea
-          value={rejectReason}
-          onChange={(e) => setRejectReason(e.target.value)}
-          placeholder="Причина отклонения"
-          rows={3}
-          maxLength={1000}
-          autoFocus
-        />
-      </Modal>
     </Modal>
   );
 }

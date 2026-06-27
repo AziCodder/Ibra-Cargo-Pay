@@ -26,21 +26,14 @@ export async function deletePayment(reqId: number, payId: number): Promise<void>
   await client.delete(`/payment-requests/${reqId}/payments/${payId}`);
 }
 
-export async function confirmPayment(reqId: number, payId: number): Promise<Payment> {
-  const res = await client.post<Payment>(
-    `/payment-requests/${reqId}/payments/${payId}/confirm`,
-  );
-  return res.data;
-}
-
-export async function rejectPayment(
+export async function updatePayment(
   reqId: number,
   payId: number,
-  reason: string,
+  data: { payment_date?: string | null },
 ): Promise<Payment> {
-  const res = await client.post<Payment>(
-    `/payment-requests/${reqId}/payments/${payId}/reject`,
-    { reason },
+  const res = await client.patch<Payment>(
+    `/payment-requests/${reqId}/payments/${payId}`,
+    data,
   );
   return res.data;
 }
