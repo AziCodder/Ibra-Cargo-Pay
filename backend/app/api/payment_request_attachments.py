@@ -102,7 +102,7 @@ async def delete_attachment(
     att_id: int,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     await ensure_project_access(project_id, current_user, db)
     await _get_request_or_404(req_id, project_id, db)
 

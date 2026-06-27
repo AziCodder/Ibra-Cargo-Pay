@@ -158,7 +158,7 @@ async def delete_note(
     note_id: int,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     await ensure_project_access(project_id, current_user, db)
     note = await _get_note_or_404(project_id, note_id, db)
 

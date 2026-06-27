@@ -140,7 +140,7 @@ async def delete_user(
     user_id: int,
     current_user=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")

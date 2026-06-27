@@ -507,7 +507,7 @@ async def delete_payment_request(
     req_id: int,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     await ensure_project_access(project_id, current_user, db)
 
     req = await _load_request(req_id, project_id, db)

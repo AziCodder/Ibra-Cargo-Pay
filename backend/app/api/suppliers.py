@@ -140,7 +140,7 @@ async def delete_supplier(
     supplier_id: int,
     current_user=Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     supplier = await db.get(Supplier, supplier_id)
     if not supplier:
         raise HTTPException(status_code=404, detail="Поставщик не найден")

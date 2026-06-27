@@ -100,7 +100,7 @@ async def delete_requirement(
     req_id: int,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+):
     item = await _get_item_or_404(project_id, item_id, current_user, db)
 
     if not can_edit_item(current_user, item):
