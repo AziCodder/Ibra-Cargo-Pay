@@ -31,4 +31,12 @@
 | 9 | `de7b8cd` |
 | 10 | `3d61cf0` |
 | 11 | `a1bef34` |
-| 12 | _(pending commit)_ |
+| 12 | `41d65e8` |
+
+## Журнал прогонов (аудит)
+
+| Дата | Область | pytest | Секция |
+|------|---------|--------|--------|
+| 2026-06-27 | permissions.py и вызовы | не запускался (нет Python локально) | [Прогон 2026-06-27](./AUDIT-checklist-review.md#прогон-2026-06-27--permissionspy-и-вызовы) |
+| 2026-06-27 | Backend routes: items | не запускался | [Прогон 2026-06-27 (2)](./AUDIT-checklist-review.md#прогон-2026-06-27-2--backend-routes-items) |
+| 2026-06-27 | Backend routes: payment_requests | не запускался | [Прогон 2026-06-27 (3)](./AUDIT-checklist-review.md#прогон-2026-06-27-3--backend-routes-payment_requests) |
