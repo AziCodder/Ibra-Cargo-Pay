@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button, Radio, Select, Spin, Empty, message, Row, Col } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
@@ -29,13 +29,20 @@ export default function ProjectsPage() {
   const initialStatus = (): StatusFilter => {
     const s = searchParams.get('status');
     if (s === 'active' || s === 'closed') return s;
-    return 'all';
+    if (s === 'all') return 'all';
+    return 'active';
   };
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialStatus);
   const [sort, setSort] = useState(readProjectSortFromStorage);
   const [showCreate, setShowCreate] = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    if (!searchParams.get('status')) {
+      setSearchParams({ status: 'active' }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const sortSelectValue = `${sort.sortBy}:${sort.sortOrder}`;
 
@@ -118,9 +125,9 @@ export default function ProjectsPage() {
           optionType="button"
           buttonStyle="solid"
           options={[
-            { label: 'Все', value: 'all' },
             { label: 'В работе', value: 'active' },
             { label: 'Закрытые', value: 'closed' },
+            { label: 'Все', value: 'all' },
           ]}
         />
         <Select

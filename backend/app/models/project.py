@@ -48,3 +48,6 @@ class Project(Base):
     payment_requests: Mapped[list[PaymentRequest]] = relationship(
         "PaymentRequest", back_populates="project"
     )
+    notes: Mapped[list[ProjectNote]] = relationship(
+        "ProjectNote", back_populates="project", cascade="all, delete-orphan"
+    )

@@ -8,6 +8,7 @@ from app.models.payment_request_item import PaymentRequestItem
 from app.models.project import Project
 from app.models.project_item import ProjectItem
 from app.models.project_item_requirement import ProjectItemRequirement
+from app.models.project_note import ProjectNote
 from app.models.supplier import Supplier
 from app.models.user import User
 
@@ -18,6 +19,7 @@ __all__ = [
     "Project",
     "ProjectItem",
     "ProjectItemRequirement",
+    "ProjectNote",
     "PaymentRequest",
     "PaymentRequestItem",
     "PaymentRequestAttachment",

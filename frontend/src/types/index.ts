@@ -152,6 +152,30 @@ export interface ProjectSummary {
   currencies: CurrencySummary[];
 }
 
+export type NoteVisibility = 'private' | 'shared';
+
+export interface ProjectNote {
+  id: number;
+  project_id: number;
+  content: string;
+  visibility: NoteVisibility;
+  created_by: number;
+  author_name: string;
+  created_at: string;
+  updated_at: string;
+  can_edit: boolean;
+}
+
+export interface ProjectNoteCreate {
+  content: string;
+  visibility?: NoteVisibility;
+}
+
+export interface ProjectNoteUpdate {
+  content?: string;
+  visibility?: NoteVisibility;
+}
+
 // ── Позиции номенклатуры ──────────────────────────────────────────────────────
 
 export interface Requirement {

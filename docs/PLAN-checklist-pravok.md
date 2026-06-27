@@ -1122,6 +1122,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 7.3 — Frontend SummaryRow
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Задачи:** удалить блок `isAdmin && summary.profit` (строки 86–92)
 
 **Файлы:** [`frontend/src/components/ProjectDetail/ItemsPanel.tsx`](frontend/src/components/ProjectDetail/ItemsPanel.tsx)
@@ -1132,6 +1134,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 7.4 — ItemDetailDrawer: убрать прибыль у admin
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Файлы:** [`frontend/src/components/ProjectDetail/ItemDetailDrawer.tsx`](frontend/src/components/ProjectDetail/ItemDetailDrawer.tsx) — ~202–208
 
 **Итог:** нет строки «Прибыль» нигде.
@@ -1139,6 +1143,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 7.5 — export_service: убрать profit из Excel
+
+> ✅ Выполнено | Тесты: 42/42 | Дата: 2026-06-27
 
 **Задачи:**
 1. Лист «Сводка» — без колонки profit
@@ -1151,6 +1157,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 7.6 — i18n cleanup
+
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
 
 **Файлы:** [`frontend/src/i18n/ru.ts`](frontend/src/i18n/ru.ts) — ключ `profit`
 
@@ -1166,6 +1174,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 8.1 — Миграция project_notes
 
+> ✅ Выполнено | Дата: 2026-06-27
+
 **Файлы:** **Создать** `backend/alembic/versions/010_project_notes.py`
 
 **SQL:** таблица `project_notes` (id, project_id, content, visibility, created_by, created_at, updated_at)
@@ -1175,6 +1185,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 8.2 — Модель ProjectNote
+
+> ✅ Выполнено | Дата: 2026-06-27
 
 **Файлы:**
 - **Создать** [`backend/app/models/project_note.py`](backend/app/models/project_note.py)
@@ -1186,6 +1198,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 8.3 — Схемы ProjectNote
 
+> ✅ Выполнено | Дата: 2026-06-27
+
 **Файлы:** **Создать** [`backend/app/schemas/project_note.py`](backend/app/schemas/project_note.py)
 
 - `ProjectNoteCreate`: content, visibility: 'private'|'shared'
@@ -1196,6 +1210,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 8.4 — API project_notes
+
+> ✅ Выполнено | Дата: 2026-06-27
 
 **Файлы:** **Создать** [`backend/app/api/project_notes.py`](backend/app/api/project_notes.py)
 
@@ -1214,6 +1230,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 8.5 — Frontend types + API
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Файлы:**
 - **Создать** [`frontend/src/api/projectNotes.ts`](frontend/src/api/projectNotes.ts)
 - [`frontend/src/types/index.ts`](frontend/src/types/index.ts) — `ProjectNote`
@@ -1223,6 +1241,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 8.6 — Компонент NotesPanel
+
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
 
 **Файлы:** **Создать** [`frontend/src/components/ProjectDetail/NotesPanel.tsx`](frontend/src/components/ProjectDetail/NotesPanel.tsx)
 
@@ -1238,6 +1258,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 8.7 — Интеграция в ProjectDetailPage
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Задачи:**
 1. **Mobile:** добавить Tab «Заметки» в `Tabs` (строки 227–242)
 2. **Desktop:** вариант A — третья колонка 20% справа; вариант B — collapsible panel под header. Рекомендация: **Tab на mobile + боковая панель 25% на desktop** между items и payments или под split.
@@ -1249,6 +1271,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 8.8 — Аудит заметок (опционально)
+
+> ✅ Выполнено | Дата: 2026-06-27
 
 **Задачи:** `audit_service.log_action` при create/update/delete note.
 
@@ -1266,6 +1290,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 9.1 — initialStatus = active
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Задачи:**
 1. `initialStatus()`: если нет `?status` → return `'active'` (было `'all'`, строка 22)
 
@@ -1277,6 +1303,8 @@ export async function moveItemUp(projectId, itemId) {
 
 ### Шаг 9.2 — Порядок кнопок Radio
 
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
+
 **Задачи:** options порядок: В работе → Закрытые → Все (строки 90–94)
 
 **Итог:** UI соответствует чек-листу.
@@ -1284,6 +1312,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 9.3 — URL sync при default active
+
+> ✅ Выполнено | tsc OK | Дата: 2026-06-27
 
 **Задачи:**
 1. `useEffect` on mount: если URL без params → `setSearchParams({ status: 'active' })`
@@ -1339,6 +1369,8 @@ export async function moveItemUp(projectId, itemId) {
 ---
 
 ### Шаг 10.3 — README
+
+> ✅ Выполнено | Дата: 2026-06-27
 
 **Файлы:** [`README.md`](README.md)
 

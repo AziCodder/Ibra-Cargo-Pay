@@ -25,6 +25,7 @@ import {
   getProject,
 } from '../api/projects';
 import ItemsPanel from '../components/ProjectDetail/ItemsPanel';
+import NotesPanel from '../components/ProjectDetail/NotesPanel';
 import PaymentRequestsPanel from '../components/ProjectDetail/PaymentRequestsPanel';
 import ProjectFormModal from '../components/Projects/ProjectFormModal';
 
@@ -208,6 +209,15 @@ export default function ProjectDetailPage() {
                   </div>
                 ),
               },
+              {
+                key: 'notes',
+                label: 'Заметки',
+                children: (
+                  <div style={{ background: token.colorBgContainer, minHeight: 200 }}>
+                    <NotesPanel projectId={projectId} />
+                  </div>
+                ),
+              },
             ]}
             tabBarStyle={{
               margin: 0,
@@ -245,11 +255,11 @@ export default function ProjectDetailPage() {
       {header}
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Левая панель — номенклатура (65%) */}
+        {/* Левая панель — номенклатура */}
         <div
           style={{
-            width: '65%',
-            minWidth: 360,
+            width: '50%',
+            minWidth: 320,
             borderRight: `1px solid ${token.colorBorderSecondary}`,
             overflowY: 'auto',
             background: token.colorBgContainer,
@@ -258,15 +268,29 @@ export default function ProjectDetailPage() {
           <ItemsPanel projectId={projectId} />
         </div>
 
-        {/* Правая панель — заявки на оплату */}
+        {/* Центр — заявки на оплату */}
         <div
           style={{
             flex: 1,
+            minWidth: 280,
             overflowY: 'auto',
             background: token.colorBgLayout,
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           <PaymentRequestsPanel projectId={projectId} initialReqId={initialReqId} />
+        </div>
+
+        {/* Правая панель — заметки (~25%) */}
+        <div
+          style={{
+            width: '25%',
+            minWidth: 240,
+            overflowY: 'auto',
+            background: token.colorBgContainer,
+          }}
+        >
+          <NotesPanel projectId={projectId} />
         </div>
       </div>
 

@@ -16,6 +16,7 @@ from app.api.payment_request_comments import router as comments_router
 from app.api.payment_requests import router as payment_requests_router
 from app.api.payments import router as payments_router, router_project as payments_project_router
 from app.api.project_item_requirements import router as requirements_router
+from app.api.project_notes import router as project_notes_router
 from app.api.project_items import router as project_items_router
 from app.api.projects import router as projects_router
 from app.api.suppliers import router as suppliers_router
@@ -64,6 +65,7 @@ app.include_router(files_router)
 app.include_router(users_router)
 app.include_router(suppliers_router)
 app.include_router(projects_router)
+app.include_router(project_notes_router)
 app.include_router(project_items_router)
 app.include_router(requirements_router)
 app.include_router(payment_requests_router)
