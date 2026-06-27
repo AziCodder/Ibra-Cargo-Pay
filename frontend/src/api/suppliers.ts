@@ -1,5 +1,10 @@
 import client from './client';
-import type { Supplier, SupplierCreate, SupplierListOut, SupplierUpdate } from '../types';
+import type { Supplier, SupplierBrief, SupplierCreate, SupplierListOut, SupplierUpdate } from '../types';
+
+export async function listSuppliersBrief(): Promise<SupplierBrief[]> {
+  const res = await client.get<SupplierBrief[]>('/suppliers/brief');
+  return res.data;
+}
 
 export async function listSuppliers(page = 1, pageSize = 50): Promise<SupplierListOut> {
   const res = await client.get<SupplierListOut>('/suppliers', {

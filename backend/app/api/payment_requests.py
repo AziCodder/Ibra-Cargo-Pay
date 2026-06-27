@@ -78,8 +78,12 @@ async def _compute_remaining(req_id: int, total_amount: Decimal, db: AsyncSessio
     return total_amount - paid
 
 
-async def _build_request_out(req: PaymentRequest, db: AsyncSession) -> PaymentRequestOut:
+async def _build_request_out(
+    req: PaymentRequest, db: AsyncSession, user
+) -> PaymentRequestOut:
     remaining = await _compute_remaining(req.id, req.total_amount, db)
+    items_for_perm = await _load_request_items(req, db)
+    can_edit = can_edit_payment_request(user, items_for_perm)
 
     items_out = []
     for pri in req.items:
@@ -106,6 +110,7 @@ async def _build_request_out(req: PaymentRequest, db: AsyncSession) -> PaymentRe
         due_date=req.due_date,
         priority=req.priority,
         remaining_amount=remaining,
+        can_edit=can_edit,
         items=items_out,
         attachments=attachments_out,
         payments=payments_out,
@@ -176,6 +181,9 @@ async def list_payment_requests(
             (pri.project_item.name if pri.project_item else f"#{pri.project_item_id}")
             for pri in req.items
         )
+        items_for_perm = [
+            pri.project_item for pri in req.items if pri.project_item is not None
+        ]
         output.append(
             PaymentRequestListOut(
                 id=req.id,
@@ -186,6 +194,7 @@ async def list_payment_requests(
                 priority=req.priority,
                 remaining_amount=remaining,
                 paid_amount=paid,
+                can_edit=can_edit_payment_request(current_user, items_for_perm),
                 items_names=names,
                 created_by=req.created_by,
                 created_at=req.created_at,
@@ -314,7 +323,7 @@ async def create_payment_request(
     )
 
     loaded = await _load_request(req_id_snapshot, project_id, db)
-    return await _build_request_out(loaded, db)
+    return await _build_request_out(loaded, db, current_user)
 
 
 @router.get("/{req_id}")
@@ -328,7 +337,7 @@ async def get_payment_request(
     await _check_access(project, current_user)
 
     req = await _load_request(req_id, project_id, db)
-    return await _build_request_out(req, db)
+    return await _build_request_out(req, db, current_user)
 
 
 @router.put("/{req_id}")
@@ -412,7 +421,7 @@ async def update_payment_request(
 
     await db.commit()
     loaded = await _load_request(req_id, project_id, db)
-    return await _build_request_out(loaded, db)
+    return await _build_request_out(loaded, db, current_user)
 
 
 @router.delete("/{req_id}", status_code=status.HTTP_204_NO_CONTENT)

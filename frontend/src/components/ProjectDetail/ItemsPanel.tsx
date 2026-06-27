@@ -3,6 +3,7 @@ import {
   Button,
   Divider,
   Modal,
+  Switch,
   Table,
   Typography,
   Spin,
@@ -25,6 +26,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   listItems,
   deleteItem,
+  updateItem,
   downloadItemsTemplate,
   importItems,
   type ImportResult,
@@ -37,6 +39,10 @@ import type { ProjectItem, CurrencySummary, Currency } from '../../types';
 import { fmt } from '../../utils/format';
 
 const { Text } = Typography;
+
+function itemCanEdit(item: ProjectItem, isAdmin: boolean): boolean {
+  return item.can_edit ?? (isAdmin || item.shared_access);
+}
 
 function fmtNum(v: string | number | undefined | null, decimals = 2): string {
   const n = parseFloat(String(v ?? '0'));
@@ -159,6 +165,17 @@ export default function ItemsPanel({ projectId }: Props) {
     }
   };
 
+  const handleToggleAccess = async (item: ProjectItem, shared: boolean) => {
+    try {
+      await updateItem(projectId, item.id, { shared_access: shared });
+      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
+      message.success(shared ? 'Доступ открыт' : 'Доступ закрыт');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Ошибка');
+    }
+  };
+
   const columns = [
     {
       title: 'Наименование',
@@ -244,22 +261,36 @@ export default function ItemsPanel({ projectId }: Props) {
     ...(isAdmin
       ? [
           {
-            title: '',
-            key: 'actions',
-            width: 40,
+            title: 'Доступ',
+            key: 'shared_access',
+            width: 72,
             render: (_: unknown, record: ProjectItem) => (
-              <Popconfirm
-                title="Удалить позицию?"
-                okText="Да"
-                cancelText="Отмена"
-                onConfirm={() => handleDelete(record.id)}
-              >
-                <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-              </Popconfirm>
+              <Switch
+                size="small"
+                checked={record.shared_access}
+                onClick={(_, e) => e.stopPropagation()}
+                onChange={(checked) => handleToggleAccess(record, checked)}
+              />
             ),
           },
         ]
       : []),
+    {
+      title: '',
+      key: 'actions',
+      width: 40,
+      render: (_: unknown, record: ProjectItem) =>
+        itemCanEdit(record, isAdmin) ? (
+          <Popconfirm
+            title="Удалить позицию?"
+            okText="Да"
+            cancelText="Отмена"
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        ) : null,
+    },
   ];
 
   return (
@@ -275,34 +306,36 @@ export default function ItemsPanel({ projectId }: Props) {
         <Text strong style={{ fontSize: 15 }}>
           Номенклатура
         </Text>
-        {isAdmin && (
-          <Space size="small" wrap>
-            <Button
-              size="small"
-              icon={<DownloadOutlined />}
-              onClick={handleDownloadTemplate}
-            >
-              Шаблон
-            </Button>
-            <Upload
-              accept=".xlsx"
-              showUploadList={false}
-              beforeUpload={handleImport}
-            >
-              <Button size="small" icon={<UploadOutlined />} loading={importLoading}>
-                Импорт
+        <Space size="small" wrap>
+          {isAdmin && (
+            <>
+              <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                onClick={handleDownloadTemplate}
+              >
+                Шаблон
               </Button>
-            </Upload>
-            <Button
-              size="small"
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setShowCreate(true)}
-            >
-              Добавить
-            </Button>
-          </Space>
-        )}
+              <Upload
+                accept=".xlsx"
+                showUploadList={false}
+                beforeUpload={handleImport}
+              >
+                <Button size="small" icon={<UploadOutlined />} loading={importLoading}>
+                  Импорт
+                </Button>
+              </Upload>
+            </>
+          )}
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setShowCreate(true)}
+          >
+            Добавить
+          </Button>
+        </Space>
       </div>
 
       {isLoading ? (
@@ -332,7 +365,7 @@ export default function ItemsPanel({ projectId }: Props) {
         </>
       )}
 
-      {isAdmin && showCreate && (
+      {showCreate && (
         <ItemFormModal
           open={showCreate}
           projectId={projectId}

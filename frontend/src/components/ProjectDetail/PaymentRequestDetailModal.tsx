@@ -515,7 +515,7 @@ export default function PaymentRequestDetailModal({
           {isMobile ? null : 'Копировать'}
         </Button>
       </Tooltip>
-      {isAdmin && !editMode && (
+      {req?.can_edit && !editMode && (
         <>
           <Tooltip title="Редактировать">
             <Button
@@ -772,7 +772,7 @@ export default function PaymentRequestDetailModal({
           />
 
           {/* Вложения */}
-          {(req.attachments.length > 0 || isAdmin) && (
+          {(req.attachments.length > 0 || req.attachments.length < 3) && (
             <>
               <Divider orientation="left" orientationMargin={0} style={{ margin: '20px 0 12px' }}>
                 Вложения ({req.attachments.length}/3)
@@ -796,7 +796,7 @@ export default function PaymentRequestDetailModal({
                           onClick={() => handleDownloadFile(att.file_path)}
                           title="Скачать"
                         />,
-                        ...(isAdmin
+                        ...(req.can_edit || isAdmin
                           ? [
                               <Popconfirm
                                 key="del"
@@ -872,8 +872,7 @@ export default function PaymentRequestDetailModal({
               renderItem={(pay) => {
                 const isOwner = pay.created_by === user?.id;
                 // admin может удалять любой; client только свои и только не confirmed
-                const canDelete =
-                  isAdmin || (isOwner && pay.status !== 'confirmed');
+                const canDelete = isAdmin || (isOwner && (req.can_edit ?? false));
                 const canConfirmReject = isAdmin && pay.status === 'pending';
                 return (
                   <List.Item

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Form, Input, InputNumber, Modal, Select, message } from 'antd';
+import { Form, Input, InputNumber, Modal, Select, Switch, message } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { createItem, updateItem } from '../../api/projectItems';
-import { listSuppliers } from '../../api/suppliers';
+import { listSuppliersBrief } from '../../api/suppliers';
+import { useAuth } from '../../contexts/AuthContext';
 import type { ProjectItem, ProjectItemCreate, ProjectItemUpdate } from '../../types';
 
 interface Props {
@@ -14,17 +15,19 @@ interface Props {
 }
 
 export default function ItemFormModal({ open, projectId, item, onClose, onSuccess }: Props) {
+  const { isAdmin } = useAuth();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  const { data: suppliersData } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => listSuppliers(1, 200),
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['suppliers-brief'],
+    queryFn: listSuppliersBrief,
+    enabled: open,
   });
 
   const supplierOptions = [
     { value: null, label: '— Без поставщика —' },
-    ...(suppliersData?.items.map((s) => ({ value: s.id, label: s.full_name })) ?? []),
+    ...suppliers.map((s) => ({ value: s.id, label: s.full_name })),
   ];
 
   useEffect(() => {
@@ -35,9 +38,10 @@ export default function ItemFormModal({ open, projectId, item, onClose, onSucces
         quantity: parseFloat(item.quantity),
         supplier_id: item.supplier_id ?? null,
         price: parseFloat(item.price),
-        cost_price: item.cost_price ? parseFloat(item.cost_price) : 0,
+        cost_price: item.cost_price ? parseFloat(item.cost_price) : undefined,
         currency: item.currency,
         commission: parseFloat(item.commission),
+        shared_access: item.shared_access,
       });
     } else if (open) {
       form.resetFields();
@@ -45,15 +49,39 @@ export default function ItemFormModal({ open, projectId, item, onClose, onSucces
     }
   }, [open, item, form]);
 
-  const handleSave = async (values: ProjectItemCreate) => {
+  const handleSave = async (values: ProjectItemCreate & { shared_access?: boolean }) => {
     setLoading(true);
     try {
       if (item) {
-        const upd: ProjectItemUpdate = { ...values };
+        const upd: ProjectItemUpdate = {
+          name: values.name,
+          details: values.details || null,
+          quantity: values.quantity,
+          supplier_id: values.supplier_id,
+          price: values.price,
+          currency: values.currency,
+          commission: values.commission,
+        };
+        if (isAdmin) {
+          upd.cost_price = values.cost_price;
+          upd.shared_access = values.shared_access;
+        }
         await updateItem(projectId, item.id, upd);
         message.success('Позиция обновлена');
       } else {
-        await createItem(projectId, values);
+        const payload: ProjectItemCreate = {
+          name: values.name,
+          details: values.details || null,
+          quantity: values.quantity,
+          supplier_id: values.supplier_id,
+          price: values.price,
+          currency: values.currency,
+          commission: values.commission,
+        };
+        if (isAdmin && values.cost_price != null) {
+          payload.cost_price = values.cost_price;
+        }
+        await createItem(projectId, payload);
         message.success('Позиция добавлена');
       }
       onSuccess();
@@ -118,16 +146,23 @@ export default function ItemFormModal({ open, projectId, item, onClose, onSucces
         >
           <InputNumber min={0} style={{ width: '100%' }} />
         </Form.Item>
-        <Form.Item
-          name="cost_price"
-          label="Себестоимость"
-          rules={[{ required: true, message: 'Введите себестоимость' }]}
-        >
-          <InputNumber min={0} style={{ width: '100%' }} />
-        </Form.Item>
+        {isAdmin && (
+          <Form.Item name="cost_price" label="Себестоимость">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+        )}
         <Form.Item name="commission" label="Комиссия (%)">
           <InputNumber min={0} max={100} style={{ width: '100%' }} />
         </Form.Item>
+        {isAdmin && item && (
+          <Form.Item
+            name="shared_access"
+            label="Общий доступ (client может редактировать)"
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+        )}
       </Form>
     </Modal>
   );

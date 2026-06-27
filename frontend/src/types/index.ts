@@ -170,13 +170,18 @@ export interface ProjectItem {
   supplier_id?: number | null;
   supplier?: SupplierBrief | null;
   price: string;
-  cost_price?: string; // только для admin
+  cost_price?: string;
   currency: Currency;
   commission: string;
-  invoiced_amount: string; // сумма по PaymentRequestItem для этой позиции
-  paid_amount: string;     // фактически оплачено (confirmed payments, пропорционально)
+  created_by: number;
+  shared_access: boolean;
+  sort_order: number;
+  can_edit?: boolean;
+  invoiced_amount: string;
+  paid_amount: string;
   requirements: Requirement[];
   created_at: string;
+  updated_at?: string;
 }
 
 export interface ProjectItemCreate {
@@ -185,7 +190,7 @@ export interface ProjectItemCreate {
   quantity: number;
   supplier_id?: number | null;
   price: number;
-  cost_price: number;
+  cost_price?: number;
   currency: Currency;
   commission?: number;
 }
@@ -199,6 +204,7 @@ export interface ProjectItemUpdate {
   cost_price?: number;
   currency?: Currency;
   commission?: number;
+  shared_access?: boolean;
 }
 
 // ── Заявки на оплату ──────────────────────────────────────────────────────────
@@ -266,6 +272,7 @@ export interface PaymentRequest {
   due_date?: string | null;
   priority: PaymentRequestPriority;
   remaining_amount: string;
+  can_edit?: boolean;
   items: PaymentRequestItemOut[];
   attachments: Attachment[];
   payments: PaymentShort[];
@@ -281,6 +288,8 @@ export interface PaymentRequestList {
   due_date?: string | null;
   priority: PaymentRequestPriority;
   remaining_amount: string;
+  paid_amount?: string;
+  can_edit?: boolean;
   items_names: string;
   created_by: number;
   created_at: string;

@@ -3,14 +3,25 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import require_admin
+from app.core.dependencies import get_current_user, require_admin
 from app.models.supplier import Supplier
-from app.schemas.supplier import SupplierCreate, SupplierListOut, SupplierOut, SupplierUpdate
+from app.schemas.supplier import SupplierBrief, SupplierCreate, SupplierListOut, SupplierOut, SupplierUpdate
 from app.services import audit_service, file_service
 
 MAX_DOC_SIZE = 10 * 1024 * 1024  # 10 МБ
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
+
+
+@router.get("/brief", response_model=list[SupplierBrief])
+async def list_suppliers_brief(
+    _user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SupplierBrief]:
+    result = await db.execute(
+        select(Supplier).order_by(Supplier.full_name.asc())
+    )
+    return [SupplierBrief.model_validate(s) for s in result.scalars().all()]
 
 
 @router.get("", response_model=SupplierListOut)

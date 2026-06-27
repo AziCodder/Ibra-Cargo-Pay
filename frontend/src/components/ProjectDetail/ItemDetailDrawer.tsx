@@ -36,6 +36,8 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
   const [addingReq, setAddingReq] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
 
+  const canEdit = item.can_edit ?? (isAdmin || item.shared_access);
+
   const handleAddReq = async () => {
     if (!newReqText.trim()) return;
     setAddingReq(true);
@@ -90,7 +92,7 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
   const notInvoiced = totalAmount - invoicedAmount;           // ещё не выставлено
   const totalRemaining = totalAmount - paidAmount;            // общий остаток
   const commissionAmount = price * quantity * (commission / 100);
-  const profitAmount = costPrice !== null ? (price - costPrice) * quantity : null;
+  const profitAmount = isAdmin && costPrice !== null ? (price - costPrice) * quantity : null;
 
   return (
     <>
@@ -100,7 +102,7 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>{item.name}</span>
-            {isAdmin && (
+            {canEdit && (
               <Space size="small">
                 <Button
                   size="small"
@@ -228,7 +230,7 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
             renderItem={(req) => (
               <List.Item
                 actions={
-                  isAdmin
+                  canEdit
                     ? [
                         <Popconfirm
                           key="del"
@@ -248,7 +250,7 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
             )}
           />
 
-          {isAdmin && item.requirements.length < 5 && (
+          {canEdit && item.requirements.length < 5 && (
             <Space.Compact style={{ width: '100%', marginTop: 8 }}>
               <Input
                 placeholder="Новое требование..."

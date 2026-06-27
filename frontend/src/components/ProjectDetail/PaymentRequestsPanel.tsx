@@ -98,16 +98,14 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
         <Text strong style={{ fontSize: 15 }}>
           Заявки на оплату
         </Text>
-        {isAdmin && (
-          <Button
-            size="small"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setShowCreate(true)}
-          >
-            Создать заявку
-          </Button>
-        )}
+        <Button
+          size="small"
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setShowCreate(true)}
+        >
+          Создать заявку
+        </Button>
       </div>
 
       {isLoading ? (
@@ -162,7 +160,7 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
                     style={{ display: 'flex', gap: 4 }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {isAdmin && (
+                    {(req.can_edit || isAdmin) && (
                       <Popconfirm
                         title="Удалить заявку?"
                         description="Заявку без платежей можно удалить."
@@ -216,7 +214,7 @@ export default function PaymentRequestsPanel({ projectId, initialReqId }: Props)
         </div>
       )}
 
-      {isAdmin && showCreate && (
+      {showCreate && (
         <PaymentRequestFormModal
           open={showCreate}
           projectId={projectId}

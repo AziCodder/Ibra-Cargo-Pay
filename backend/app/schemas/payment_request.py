@@ -97,6 +97,7 @@ class PaymentRequestOut(BaseModel):
     due_date: date | None = None
     priority: str
     remaining_amount: Decimal
+    can_edit: bool = False
     items: list[PaymentRequestItemOut] = []
     attachments: list[AttachmentOut] = []
     payments: list[PaymentShortOut] = []
@@ -115,6 +116,7 @@ class PaymentRequestListOut(BaseModel):
     priority: str
     remaining_amount: Decimal
     paid_amount: Decimal
+    can_edit: bool = False
     items_names: str  # "Товар1, Товар2"
     created_by: int
     created_at: datetime
