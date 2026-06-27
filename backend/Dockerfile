@@ -10,7 +10,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # /usr/bin/pg_dump — Perl-обёртка (pg_wrapper), нужен реальный ELF-бинарник.
+# pg_restore нужен для восстановления БД из бэкапа (custom-формат).
 COPY --from=pg_tools /usr/lib/postgresql/16/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=pg_tools /usr/lib/postgresql/16/bin/pg_restore /usr/local/bin/pg_restore
 
 WORKDIR /app
 

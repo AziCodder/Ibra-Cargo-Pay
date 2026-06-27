@@ -1,11 +1,17 @@
 import { Alert, Button, Empty, Popconfirm, Space, Table, Tag, Typography, message } from 'antd';
-import { CloudDownloadOutlined, CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  CloudDownloadOutlined,
+  CloudUploadOutlined,
+  ReloadOutlined,
+  RollbackOutlined,
+} from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import {
   getBackupDownloadUrl,
   listBackups,
+  restoreBackup,
   runBackupNow,
   type BackupItem,
 } from '../../api/backups';
@@ -53,6 +59,24 @@ export default function BackupsTab() {
     }
   };
 
+  const restoreMut = useMutation({
+    mutationFn: restoreBackup,
+    onSuccess: (res) => {
+      message.success(
+        'База восстановлена из бэкапа' +
+          (res.safety_backup_key
+            ? '. Предыдущее состояние сохранено в новый бэкап.'
+            : ''),
+        6,
+      );
+      queryClient.invalidateQueries();
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Не удалось восстановить базу', 8);
+    },
+  });
+
   const columns: ColumnsType<BackupItem> = [
     {
       title: 'Дата создания',
@@ -79,15 +103,43 @@ export default function BackupsTab() {
     {
       title: '',
       key: 'actions',
-      width: 130,
+      width: 240,
       render: (_: unknown, r: BackupItem) => (
-        <Button
-          size="small"
-          icon={<CloudDownloadOutlined />}
-          onClick={() => handleDownload(r.key)}
-        >
-          Скачать
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<CloudDownloadOutlined />}
+            onClick={() => handleDownload(r.key)}
+            disabled={restoreMut.isPending}
+          >
+            Скачать
+          </Button>
+          <Popconfirm
+            title="Восстановить базу из этого бэкапа?"
+            description={
+              <div style={{ maxWidth: 320 }}>
+                Текущие данные будут <Text strong>полностью заменены</Text> состоянием на{' '}
+                {r.last_modified ? dayjs(r.last_modified).format('DD.MM.YYYY HH:mm') : 'момент бэкапа'}.
+                <br />
+                Перед откатом автоматически создастся бэкап текущего состояния.
+              </div>
+            }
+            okText="Восстановить"
+            okButtonProps={{ danger: true }}
+            cancelText="Отмена"
+            onConfirm={() => restoreMut.mutate(r.key)}
+          >
+            <Button
+              size="small"
+              danger
+              icon={<RollbackOutlined />}
+              loading={restoreMut.isPending && restoreMut.variables === r.key}
+              disabled={restoreMut.isPending}
+            >
+              Восстановить
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];

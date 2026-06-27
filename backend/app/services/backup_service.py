@@ -7,6 +7,8 @@
 
 import asyncio
 import logging
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
@@ -21,6 +23,10 @@ class BackupConfigError(RuntimeError):
 
 class BackupExecutionError(RuntimeError):
     """pg_dump или загрузка в S3 завершились ошибкой."""
+
+
+class BackupNotFoundError(RuntimeError):
+    """Запрошенный для восстановления ключ не найден / недопустим."""
 
 
 def _backup_creds() -> dict[str, str]:
@@ -286,4 +292,159 @@ async def run_backup() -> dict:
         "finished_at": finished.isoformat(),
         "deleted_old_count": deleted,
         "bucket": settings.backup_s3_bucket,
+    }
+
+
+# ─── Восстановление БД из бэкапа ────────────────────────────────────────────────
+
+
+def _normalized_prefix() -> str:
+    prefix = settings.backup_s3_prefix
+    return prefix if prefix.endswith("/") else prefix + "/"
+
+
+async def _download_dump(key: str) -> bytes:
+    """Скачивает объект дампа из backup-бакета. Бросает BackupNotFoundError если нет."""
+    from botocore.exceptions import ClientError
+
+    session = _s3_session()
+    async with session.client("s3", **_s3_client_kwargs()) as s3:
+        try:
+            resp = await s3.get_object(Bucket=settings.backup_s3_bucket, Key=key)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404", "NoSuchBucket"):
+                raise BackupNotFoundError(f"Бэкап не найден: {key}") from e
+            raise BackupExecutionError(f"Ошибка S3 при скачивании: {e}") from e
+        async with resp["Body"] as stream:
+            return await stream.read()
+
+
+async def _reset_schema() -> None:
+    """
+    Полностью очищает БД перед восстановлением: DROP SCHEMA public CASCADE.
+    Нужно, чтобы остатки новых миграций (таблицы/колонки, которых нет в старом
+    дампе) не конфликтовали с повторным `alembic upgrade head` после restore.
+    """
+    from sqlalchemy import text
+
+    from app.core.database import engine
+
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+
+
+async def _run_pg_restore(db: dict[str, str], dump_bytes: bytes) -> None:
+    """pg_restore custom-дампа в (предварительно очищенную) БД."""
+    tmp = tempfile.NamedTemporaryFile(
+        prefix="restore_", suffix=".dump", delete=False
+    )
+    try:
+        tmp.write(dump_bytes)
+        tmp.flush()
+        tmp.close()
+        cmd = [
+            "pg_restore",
+            "--no-owner",
+            "--no-privileges",
+            "--exit-on-error",
+            "-h", db["host"],
+            "-p", db["port"],
+            "-U", db["user"],
+            "-d", db["dbname"],
+            tmp.name,
+        ]
+        env = {
+            "PGPASSWORD": db["password"],
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        }
+        logger.info(
+            "Запуск pg_restore в %s@%s/%s", db["user"], db["host"], db["dbname"]
+        )
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        _stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            msg = (stderr or b"").decode(errors="replace").strip()
+            raise BackupExecutionError(f"pg_restore exit={proc.returncode}: {msg}")
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+async def _run_alembic_upgrade() -> None:
+    """Догоняет схему до актуальной после восстановления старого дампа."""
+    proc = await asyncio.create_subprocess_exec(
+        "alembic", "upgrade", "head",
+        cwd="/app",
+        env={**os.environ},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        msg = (stderr or stdout or b"").decode(errors="replace").strip()
+        raise BackupExecutionError(f"alembic upgrade exit={proc.returncode}: {msg}")
+
+
+async def restore_backup(key: str) -> dict:
+    """
+    Откатывает БД к состоянию указанного бэкапа.
+
+    Шаги: предохранительный бэкап текущего состояния (best-effort) → скачать дамп
+    → очистить схему → pg_restore → alembic upgrade head → сбросить пул соединений.
+    """
+    if not _is_backup_configured():
+        raise BackupConfigError(
+            "Бэкапы не настроены. Задайте S3_* и BACKUP_S3_BUCKET в .env"
+        )
+
+    prefix = _normalized_prefix()
+    if not key.startswith(prefix) or ".." in key:
+        raise BackupNotFoundError("Недопустимый ключ бэкапа")
+
+    started = datetime.now(timezone.utc)
+
+    # 1. Предохранительный бэкап текущего состояния — чтобы случайный откат
+    #    можно было отменить. Не блокирует восстановление при ошибке.
+    safety_key: str | None = None
+    try:
+        safety = await run_backup()
+        safety_key = safety.get("key")
+        logger.info("Предохранительный бэкап перед restore: %s", safety_key)
+    except Exception:
+        logger.exception("Не удалось сделать предохранительный бэкап перед restore")
+
+    # 2. Скачать целевой дамп
+    dump_bytes = await _download_dump(key)
+
+    # 3. Очистить схему, 4. залить дамп, 5. догнать миграции
+    db = _parse_db_url()
+    await _reset_schema()
+    await _run_pg_restore(db, dump_bytes)
+    await _run_alembic_upgrade()
+
+    # 6. Сбросить пул соединений: у старых connection'ов кэш планов/каталога
+    #    устарел после пересоздания схемы.
+    try:
+        from app.core.database import engine
+
+        await engine.dispose()
+    except Exception:
+        logger.exception("Не удалось сбросить пул соединений после restore")
+
+    finished = datetime.now(timezone.utc)
+    return {
+        "restored_key": key,
+        "size_bytes": len(dump_bytes),
+        "safety_backup_key": safety_key,
+        "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
     }

@@ -10,6 +10,7 @@ GET  /api/backups/download-url?key=... — presigned URL (admin only).
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.core.dependencies import require_admin
@@ -18,6 +19,10 @@ from app.services import backup_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
+
+
+class RestoreRequest(BaseModel):
+    key: str = Field(..., min_length=1)
 
 
 @router.post("/run")
@@ -45,6 +50,23 @@ async def run_backup_admin(_admin=Depends(require_admin)):
         raise HTTPException(status_code=503, detail=str(e))
     except backup_service.BackupExecutionError as e:
         logger.error("Ручной бэкап провален: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/restore-admin")
+async def restore_backup_admin(
+    payload: RestoreRequest,
+    _admin=Depends(require_admin),
+):
+    """Откат БД к состоянию указанного бэкапа. Только admin. ОПАСНО: перезатирает данные."""
+    try:
+        return await backup_service.restore_backup(payload.key)
+    except backup_service.BackupConfigError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except backup_service.BackupNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except backup_service.BackupExecutionError as e:
+        logger.error("Восстановление из бэкапа провалено: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

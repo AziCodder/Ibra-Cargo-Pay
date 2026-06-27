@@ -38,3 +38,16 @@ export async function getBackupDownloadUrl(key: string): Promise<string> {
   });
   return res.data.url;
 }
+
+export interface BackupRestoreResult {
+  restored_key: string;
+  size_bytes: number;
+  safety_backup_key: string | null;
+  started_at: string;
+  finished_at: string;
+}
+
+export async function restoreBackup(key: string): Promise<BackupRestoreResult> {
+  const res = await client.post<BackupRestoreResult>('/backups/restore-admin', { key });
+  return res.data;
+}
