@@ -325,14 +325,43 @@ async def _reset_schema() -> None:
     Полностью очищает БД перед восстановлением: DROP SCHEMA public CASCADE.
     Нужно, чтобы остатки новых миграций (таблицы/колонки, которых нет в старом
     дампе) не конфликтовали с повторным `alembic upgrade head` после restore.
+
+    КРИТИЧНО: сам restore-запрос держит открытую сессию БД (require_admin →
+    ACCESS SHARE на users). Без обрыва чужих соединений DROP SCHEMA ждёт их
+    блокировки и зависает навсегда (самоблокировка). Поэтому сначала рвём все
+    прочие соединения к БД и ставим lock_timeout, чтобы не висеть вечно.
     """
     from sqlalchemy import text
 
     from app.core.database import engine
 
     async with engine.begin() as conn:
+        await conn.execute(text("SET LOCAL lock_timeout = '20s'"))
+        await conn.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+            )
+        )
         await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
+
+
+async def _safety_backup() -> str | None:
+    """
+    Лёгкий бэкап текущего состояния перед restore: pg_dump + загрузка в S3.
+    Без Telegram и retention (они медленные и тут не нужны). Best-effort.
+    """
+    try:
+        db = _parse_db_url()
+        dump_bytes = await _run_pg_dump(db)
+        key = _backup_key(datetime.now(timezone.utc))
+        await _upload(key, dump_bytes)
+        logger.info("Предохранительный бэкап перед restore: %s", key)
+        return key
+    except Exception:
+        logger.exception("Предохранительный бэкап перед restore не удался")
+        return None
 
 
 async def _run_pg_restore(db: dict[str, str], dump_bytes: bytes) -> None:
@@ -412,18 +441,13 @@ async def restore_backup(key: str) -> dict:
 
     started = datetime.now(timezone.utc)
 
-    # 1. Предохранительный бэкап текущего состояния — чтобы случайный откат
-    #    можно было отменить. Не блокирует восстановление при ошибке.
-    safety_key: str | None = None
-    try:
-        safety = await run_backup()
-        safety_key = safety.get("key")
-        logger.info("Предохранительный бэкап перед restore: %s", safety_key)
-    except Exception:
-        logger.exception("Не удалось сделать предохранительный бэкап перед restore")
-
-    # 2. Скачать целевой дамп
+    # 1. Скачать целевой дамп ПЕРВЫМ — при неверном ключе/ошибке S3 падаем сразу,
+    #    не трогая текущую БД.
     dump_bytes = await _download_dump(key)
+
+    # 2. Предохранительный бэкап текущего состояния (best-effort), чтобы случайный
+    #    откат можно было отменить.
+    safety_key = await _safety_backup()
 
     # 3. Очистить схему, 4. залить дамп, 5. догнать миграции
     db = _parse_db_url()
