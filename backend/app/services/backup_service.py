@@ -327,9 +327,9 @@ async def _reset_schema() -> None:
     дампе) не конфликтовали с повторным `alembic upgrade head` после restore.
 
     КРИТИЧНО: сам restore-запрос держит открытую сессию БД (require_admin →
-    ACCESS SHARE на users). Без обрыва чужих соединений DROP SCHEMA ждёт их
-    блокировки и зависает навсегда (самоблокировка). Поэтому сначала рвём все
-    прочие соединения к БД и ставим lock_timeout, чтобы не висеть вечно.
+    ACCESS SHARE на users). Эндпоинт закрывает её перед вызовом restore, чтобы
+    снять блокировку. lock_timeout — страховка, чтобы не висеть вечно, если
+    какое-то другое соединение всё же держит конфликтующую блокировку.
     """
     from sqlalchemy import text
 
@@ -337,12 +337,6 @@ async def _reset_schema() -> None:
 
     async with engine.begin() as conn:
         await conn.execute(text("SET LOCAL lock_timeout = '20s'"))
-        await conn.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
-            )
-        )
         await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
 

@@ -11,8 +11,10 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import get_db
 from app.core.dependencies import require_admin
 from app.services import backup_service
 
@@ -57,8 +59,12 @@ async def run_backup_admin(_admin=Depends(require_admin)):
 async def restore_backup_admin(
     payload: RestoreRequest,
     _admin=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Откат БД к состоянию указанного бэкапа. Только admin. ОПАСНО: перезатирает данные."""
+    # Закрываем сессию авторизации до восстановления: её открытая транзакция
+    # держит ACCESS SHARE на users и заблокировала бы DROP SCHEMA в restore.
+    await db.close()
     try:
         return await backup_service.restore_backup(payload.key)
     except backup_service.BackupConfigError as e:
