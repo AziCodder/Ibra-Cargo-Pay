@@ -218,17 +218,17 @@ export default function PaymentRequestsPanel({
                     <Tag color={req.currency === 'CNY' ? 'orange' : req.currency === 'USD' ? 'blue' : 'purple'}>
                       {req.currency}
                     </Tag>
-                    <Text ellipsis style={{ flex: 1, maxWidth: 240 }}>
+                    <Text ellipsis style={{ flex: 1, minWidth: 0 }}>
                       {req.items_names || '—'}
                     </Text>
-                    {isCompleted && <Tag color="success">Оплачено</Tag>}
                   </div>
                 }
                 extra={
                   <div
-                    style={{ display: 'flex', gap: 4 }}
+                    style={{ display: 'flex', gap: 4, alignItems: 'center' }}
                     onClick={(e) => e.stopPropagation()}
                   >
+                    {isCompleted && <Tag color="success" style={{ marginInlineEnd: 0 }}>Оплачено</Tag>}
                     {(req.can_edit || isAdmin) && (
                       <Popconfirm
                         title="Удалить заявку?"

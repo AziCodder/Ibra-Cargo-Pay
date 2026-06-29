@@ -16,12 +16,19 @@ router = APIRouter(prefix="/api/projects/{project_id}/notes", tags=["project-not
 
 
 def _can_view_note(note: ProjectNote, user) -> bool:
+    # Общие заметки видят все; личную — только автор (даже админ не видит чужую).
     if note.visibility == "shared":
         return True
-    return user.role == "admin" or note.created_by == user.id
+    return note.created_by == user.id
 
 
 def _can_edit_note(note: ProjectNote, user) -> bool:
+    # Редактировать заметку может только её автор.
+    return note.created_by == user.id
+
+
+def _can_delete_note(note: ProjectNote, user) -> bool:
+    # Удалять может автор или администратор.
     return user.role == "admin" or note.created_by == user.id
 
 
@@ -36,6 +43,7 @@ def _note_out(note: ProjectNote, user) -> ProjectNoteOut:
         created_at=note.created_at,
         updated_at=note.updated_at,
         can_edit=_can_edit_note(note, user),
+        can_delete=_can_delete_note(note, user),
     )
 
 
@@ -68,13 +76,13 @@ async def list_notes(
         .order_by(ProjectNote.created_at.desc())
     )
 
-    if current_user.role != "admin":
-        query = query.where(
-            or_(
-                ProjectNote.visibility == "shared",
-                ProjectNote.created_by == current_user.id,
-            )
+    # Личные заметки видны только автору (включая админа — чужие личные скрыты).
+    query = query.where(
+        or_(
+            ProjectNote.visibility == "shared",
+            ProjectNote.created_by == current_user.id,
         )
+    )
 
     result = await db.execute(query)
     notes = result.scalars().all()
@@ -90,10 +98,12 @@ async def create_note(
 ) -> ProjectNoteOut:
     await ensure_project_access(project_id, current_user, db)
 
+    # Клиент не выбирает видимость — все его заметки общие.
+    visibility = data.visibility if current_user.role == "admin" else "shared"
     note = ProjectNote(
         project_id=project_id,
         content=data.content.strip(),
-        visibility=data.visibility,
+        visibility=visibility,
         created_by=current_user.id,
     )
     db.add(note)
@@ -131,7 +141,8 @@ async def update_note(
     before = audit_service.entity_snapshot(note)
     if data.content is not None:
         note.content = data.content.strip()
-    if data.visibility is not None:
+    # Менять видимость может только админ; у клиента заметки всегда общие.
+    if data.visibility is not None and current_user.role == "admin":
         note.visibility = data.visibility
 
     await db.flush()
@@ -162,7 +173,7 @@ async def delete_note(
     await ensure_project_access(project_id, current_user, db)
     note = await _get_note_or_404(project_id, note_id, db)
 
-    if not _can_edit_note(note, current_user):
+    if not _can_delete_note(note, current_user):
         raise HTTPException(status_code=403, detail="Нет прав на удаление заметки")
 
     before = audit_service.entity_snapshot(note)

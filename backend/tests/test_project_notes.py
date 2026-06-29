@@ -43,8 +43,14 @@ class TestNotePermissions:
         author = SimpleNamespace(id=2, role="client")
         assert notes_api._can_view_note(note, author) is True
 
-    def test_private_note_visible_to_admin(self):
+    def test_private_note_hidden_from_admin(self):
+        # Чужую личную заметку админ больше не видит.
         note = self._note(visibility="private", created_by=2)
+        admin = SimpleNamespace(id=1, role="admin")
+        assert notes_api._can_view_note(note, admin) is False
+
+    def test_own_private_note_visible_to_admin_author(self):
+        note = self._note(visibility="private", created_by=1)
         admin = SimpleNamespace(id=1, role="admin")
         assert notes_api._can_view_note(note, admin) is True
 
@@ -53,18 +59,38 @@ class TestNotePermissions:
         other = SimpleNamespace(id=99, role="client")
         assert notes_api._can_view_note(note, other) is False
 
-    def test_edit_only_author_or_admin(self):
+    def test_edit_only_author(self):
+        # Редактировать может только автор — даже админ не может чужую.
         note = self._note(created_by=2)
         author = SimpleNamespace(id=2, role="client")
         admin = SimpleNamespace(id=1, role="admin")
         other = SimpleNamespace(id=99, role="client")
         assert notes_api._can_edit_note(note, author) is True
-        assert notes_api._can_edit_note(note, admin) is True
+        assert notes_api._can_edit_note(note, admin) is False
         assert notes_api._can_edit_note(note, other) is False
 
-    def test_note_out_includes_can_edit(self):
+    def test_delete_author_or_admin(self):
+        # Удалять может автор или админ, но не посторонний клиент.
+        note = self._note(created_by=2)
+        author = SimpleNamespace(id=2, role="client")
+        admin = SimpleNamespace(id=1, role="admin")
+        other = SimpleNamespace(id=99, role="client")
+        assert notes_api._can_delete_note(note, author) is True
+        assert notes_api._can_delete_note(note, admin) is True
+        assert notes_api._can_delete_note(note, other) is False
+
+    def test_note_out_flags_for_admin_non_author(self):
+        # Админ на чужой заметке: редактировать нельзя, удалять можно.
         note = self._note(created_by=2)
         admin = SimpleNamespace(id=1, role="admin")
         out = notes_api._note_out(note, admin)
         assert out.author_name == "Author"
+        assert out.can_edit is False
+        assert out.can_delete is True
+
+    def test_note_out_flags_for_author(self):
+        note = self._note(created_by=2)
+        author = SimpleNamespace(id=2, role="client")
+        out = notes_api._note_out(note, author)
         assert out.can_edit is True
+        assert out.can_delete is True

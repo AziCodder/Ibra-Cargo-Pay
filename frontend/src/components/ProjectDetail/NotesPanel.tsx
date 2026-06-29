@@ -20,6 +20,7 @@ import {
   listProjectNotes,
   updateProjectNote,
 } from '../../api/projectNotes';
+import { useAuth } from '../../contexts/AuthContext';
 import type { NoteVisibility, ProjectNote } from '../../types';
 
 const { Text } = Typography;
@@ -33,12 +34,15 @@ interface Props {
 export default function NotesPanel({ projectId }: Props) {
   const queryClient = useQueryClient();
   const { token } = useToken();
+  const { isAdmin } = useAuth();
+  // Выбор «Личная/Общая» доступен только админу; у клиента все заметки общие.
+  const defaultVisibility: NoteVisibility = isAdmin ? 'private' : 'shared';
   const [newContent, setNewContent] = useState('');
-  const [newVisibility, setNewVisibility] = useState<NoteVisibility>('private');
+  const [newVisibility, setNewVisibility] = useState<NoteVisibility>(defaultVisibility);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
-  const [editVisibility, setEditVisibility] = useState<NoteVisibility>('private');
+  const [editVisibility, setEditVisibility] = useState<NoteVisibility>(defaultVisibility);
   const [saving, setSaving] = useState(false);
 
   const { data: notes = [], isLoading } = useQuery({
@@ -60,7 +64,7 @@ export default function NotesPanel({ projectId }: Props) {
     try {
       await createProjectNote(projectId, { content, visibility: newVisibility });
       setNewContent('');
-      setNewVisibility('private');
+      setNewVisibility(defaultVisibility);
       invalidate();
       message.success('Заметка добавлена');
     } catch (err: unknown) {
@@ -144,14 +148,18 @@ export default function NotesPanel({ projectId }: Props) {
             justifyContent: 'space-between',
           }}
         >
-          <Radio.Group
-            value={newVisibility}
-            onChange={(e) => setNewVisibility(e.target.value)}
-            size="small"
-          >
-            <Radio.Button value="private">Личная</Radio.Button>
-            <Radio.Button value="shared">Общая</Radio.Button>
-          </Radio.Group>
+          {isAdmin ? (
+            <Radio.Group
+              value={newVisibility}
+              onChange={(e) => setNewVisibility(e.target.value)}
+              size="small"
+            >
+              <Radio.Button value="private">Личная</Radio.Button>
+              <Radio.Button value="shared">Общая</Radio.Button>
+            </Radio.Group>
+          ) : (
+            <span />
+          )}
           <Button
             type="primary"
             size="small"
@@ -185,14 +193,16 @@ export default function NotesPanel({ projectId }: Props) {
                   maxLength={8000}
                 />
                 <Space wrap style={{ marginTop: 8 }}>
-                  <Radio.Group
-                    value={editVisibility}
-                    onChange={(e) => setEditVisibility(e.target.value)}
-                    size="small"
-                  >
-                    <Radio.Button value="private">Личная</Radio.Button>
-                    <Radio.Button value="shared">Общая</Radio.Button>
-                  </Radio.Group>
+                  {isAdmin && (
+                    <Radio.Group
+                      value={editVisibility}
+                      onChange={(e) => setEditVisibility(e.target.value)}
+                      size="small"
+                    >
+                      <Radio.Button value="private">Личная</Radio.Button>
+                      <Radio.Button value="shared">Общая</Radio.Button>
+                    </Radio.Group>
+                  )}
                   <Button type="primary" size="small" loading={saving} onClick={handleUpdate}>
                     Сохранить
                   </Button>
@@ -224,22 +234,28 @@ export default function NotesPanel({ projectId }: Props) {
                       {new Date(note.created_at).toLocaleString('ru-RU')}
                     </Text>
                   </Space>
-                  {note.can_edit && (
+                  {(note.can_edit || note.can_delete) && (
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => startEdit(note)}
-                      />
-                      <Popconfirm
-                        title="Удалить заметку?"
-                        okText="Да"
-                        cancelText="Отмена"
-                        onConfirm={() => handleDelete(note.id)}
-                      >
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                      </Popconfirm>
+                      {/* Редактировать может только автор. */}
+                      {note.can_edit && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => startEdit(note)}
+                        />
+                      )}
+                      {/* Удалять может автор или админ. */}
+                      {note.can_delete && (
+                        <Popconfirm
+                          title="Удалить заметку?"
+                          okText="Да"
+                          cancelText="Отмена"
+                          onConfirm={() => handleDelete(note.id)}
+                        >
+                          <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                        </Popconfirm>
+                      )}
                     </div>
                   )}
                 </div>

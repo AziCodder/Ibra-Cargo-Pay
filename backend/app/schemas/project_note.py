@@ -26,5 +26,6 @@ class ProjectNoteOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     can_edit: bool = False
+    can_delete: bool = False
 
     model_config = {"from_attributes": True}

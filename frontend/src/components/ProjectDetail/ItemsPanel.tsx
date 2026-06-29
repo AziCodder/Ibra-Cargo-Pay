@@ -12,12 +12,10 @@ import {
   Upload,
   Space,
   message,
-  Popconfirm,
   Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
-  DeleteOutlined,
   DownloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -40,8 +38,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   listItems,
-  deleteItem,
-  updateItem,
   reorderItems,
   downloadItemsTemplate,
   importItems,
@@ -55,10 +51,6 @@ import type { ProjectItem, CurrencySummary, Currency } from '../../types';
 import { fmt } from '../../utils/format';
 
 const { Text } = Typography;
-
-function itemCanEdit(item: ProjectItem, isAdmin: boolean): boolean {
-  return item.can_edit ?? (isAdmin || item.shared_access);
-}
 
 function fmtNum(v: string | number | undefined | null, decimals = 2): string {
   const n = parseFloat(String(v ?? '0'));
@@ -198,29 +190,6 @@ export default function ItemsPanel({
     queryFn: () => getProjectSummary(projectId),
   });
 
-  const handleDelete = async (itemId: number) => {
-    try {
-      await deleteItem(projectId, itemId);
-      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['project-summary', projectId] });
-      message.success('Позиция удалена');
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Ошибка удаления');
-    }
-  };
-
-  const handleToggleAccess = async (item: ProjectItem, shared: boolean) => {
-    try {
-      await updateItem(projectId, item.id, { shared_access: shared });
-      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
-      message.success(shared ? 'Доступ открыт' : 'Доступ закрыт');
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      message.error(e.response?.data?.detail ?? 'Ошибка');
-    }
-  };
-
   // Перетаскивание активируется удержанием строки ~0.5 секунды (long-press).
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -269,7 +238,7 @@ export default function ItemsPanel({
       title: 'Наименование',
       dataIndex: 'name',
       key: 'name',
-      width: '32%',
+      width: '38%',
       ellipsis: { showTitle: false },
       render: (name: string, record: ProjectItem) => (
         <Tooltip title={name} placement="topLeft">
@@ -328,6 +297,20 @@ export default function ItemsPanel({
       },
     },
     {
+      title: 'Оплачено',
+      key: 'paid',
+      width: 140,
+      align: 'right' as const,
+      render: (_: unknown, record: ProjectItem) => {
+        const paid = parseFloat(record.paid_amount ?? '0');
+        return (
+          <Text style={{ fontSize: 12, whiteSpace: 'nowrap' }} type={paid > 0 ? undefined : 'secondary'}>
+            {fmtNum(paid)} {record.currency}
+          </Text>
+        );
+      },
+    },
+    {
       title: 'Остаток',
       key: 'remaining',
       width: 140,
@@ -361,39 +344,6 @@ export default function ItemsPanel({
           />
         </Tooltip>
       ),
-    },
-    ...(isAdmin
-      ? [
-          {
-            title: 'Доступ',
-            key: 'shared_access',
-            width: 72,
-            render: (_: unknown, record: ProjectItem) => (
-              <Switch
-                size="small"
-                checked={record.shared_access}
-                onClick={(_, e) => e.stopPropagation()}
-                onChange={(checked) => handleToggleAccess(record, checked)}
-              />
-            ),
-          },
-        ]
-      : []),
-    {
-      title: '',
-      key: 'actions',
-      width: 40,
-      render: (_: unknown, record: ProjectItem) =>
-        itemCanEdit(record, isAdmin) ? (
-          <Popconfirm
-            title="Удалить позицию?"
-            okText="Да"
-            cancelText="Отмена"
-            onConfirm={() => handleDelete(record.id)}
-          >
-            <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        ) : null,
     },
   ];
 

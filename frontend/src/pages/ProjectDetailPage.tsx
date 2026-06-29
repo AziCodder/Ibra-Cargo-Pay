@@ -289,10 +289,10 @@ export default function ProjectDetailPage() {
       {header}
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Левая панель — номенклатура */}
+        {/* Левая панель — номенклатура (шире, чтобы помещались названия) */}
         <div
           style={{
-            width: '50%',
+            width: '58%',
             minWidth: 320,
             borderRight: `1px solid ${token.colorBorderSecondary}`,
             overflowY: 'auto',

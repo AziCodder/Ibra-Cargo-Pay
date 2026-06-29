@@ -8,13 +8,14 @@ import {
   List,
   Popconfirm,
   Space,
+  Switch,
   Tag,
   Typography,
   message,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
-import { addRequirement, deleteItem, deleteRequirement } from '../../api/projectItems';
+import { addRequirement, deleteItem, deleteRequirement, updateItem } from '../../api/projectItems';
 import { useAuth } from '../../contexts/AuthContext';
 import ItemFormModal from './ItemFormModal';
 import type { ProjectItem, Requirement } from '../../types';
@@ -76,6 +77,18 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } } };
       message.error(e.response?.data?.detail ?? 'Ошибка удаления');
+    }
+  };
+
+  const handleToggleAccess = async (shared: boolean) => {
+    try {
+      await updateItem(projectId, item.id, { shared_access: shared });
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ['project-items', projectId] });
+      message.success(shared ? 'Доступ открыт' : 'Доступ закрыт');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      message.error(e.response?.data?.detail ?? 'Ошибка');
     }
   };
 
@@ -141,6 +154,15 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
           <Descriptions.Item label="Валюта">
             <Tag>{currency}</Tag>
           </Descriptions.Item>
+          {isAdmin && (
+            <Descriptions.Item label="Доступ клиенту">
+              <Switch
+                size="small"
+                checked={item.shared_access}
+                onChange={handleToggleAccess}
+              />
+            </Descriptions.Item>
+          )}
           <Descriptions.Item label="Цена">
             {price.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
           </Descriptions.Item>

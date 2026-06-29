@@ -323,25 +323,30 @@ class Test08ProjectNotes:
         assert note.visibility == "private"
         assert "shared" in str(ProjectNoteCreate.model_fields["visibility"].annotation)
 
-    def test_private_note_visible_only_to_author_or_admin(self):
+    def test_private_note_visible_only_to_author(self):
+        # Правка клиента: чужую личную заметку не видит даже админ.
         admin = SimpleNamespace(id=1, role="admin")
         author = SimpleNamespace(id=2, role="client")
         other = SimpleNamespace(id=3, role="client")
         private = SimpleNamespace(visibility="private", created_by=2)
         shared = SimpleNamespace(visibility="shared", created_by=2)
         assert project_notes._can_view_note(private, author) is True
-        assert project_notes._can_view_note(private, admin) is True
+        assert project_notes._can_view_note(private, admin) is False
         assert project_notes._can_view_note(private, other) is False
         assert project_notes._can_view_note(shared, other) is True
 
-    def test_only_author_or_admin_can_edit_note(self):
+    def test_only_author_can_edit_but_admin_can_delete(self):
+        # Правка клиента: редактирует только автор; удаляет автор или админ.
         admin = SimpleNamespace(id=1, role="admin")
         author = SimpleNamespace(id=2, role="client")
         other = SimpleNamespace(id=3, role="client")
         note = SimpleNamespace(created_by=2)
         assert project_notes._can_edit_note(note, author) is True
-        assert project_notes._can_edit_note(note, admin) is True
+        assert project_notes._can_edit_note(note, admin) is False
         assert project_notes._can_edit_note(note, other) is False
+        assert project_notes._can_delete_note(note, author) is True
+        assert project_notes._can_delete_note(note, admin) is True
+        assert project_notes._can_delete_note(note, other) is False
 
     def test_notes_panel_component_exists(self):
         assert (FRONTEND_SRC / "components/ProjectDetail/NotesPanel.tsx").exists()
