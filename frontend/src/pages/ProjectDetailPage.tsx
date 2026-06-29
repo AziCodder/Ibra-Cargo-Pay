@@ -292,7 +292,7 @@ export default function ProjectDetailPage() {
         {/* Левая панель — номенклатура (шире, чтобы помещались названия) */}
         <div
           style={{
-            width: '58%',
+            width: '64%',
             minWidth: 320,
             borderRight: `1px solid ${token.colorBorderSecondary}`,
             overflowY: 'auto',

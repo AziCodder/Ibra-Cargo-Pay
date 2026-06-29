@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import {
   Button,
   Card,
-  DatePicker,
   Empty,
   Popconfirm,
   Progress,
@@ -30,9 +29,7 @@ import {
   type PaymentRequestSortOrder,
   type PaymentRequestStatusFilter,
 } from '../../utils/paymentRequestFilters';
-import dayjs, { type Dayjs } from 'dayjs';
-
-const { RangePicker } = DatePicker;
+import dayjs from 'dayjs';
 
 const PRIORITY_LABEL: Record<PaymentRequestPriority, string> = {
   urgent: 'Срочно',
@@ -97,14 +94,6 @@ export default function PaymentRequestsPanel({
     queryFn: () => listPaymentRequests(projectId, listParams),
   });
 
-  const dateRangeValue: [Dayjs | null, Dayjs | null] | null =
-    filters.dateFrom || filters.dateTo
-      ? [
-          filters.dateFrom ? dayjs(filters.dateFrom) : null,
-          filters.dateTo ? dayjs(filters.dateTo) : null,
-        ]
-      : null;
-
   const handleDelete = async (req: PaymentRequestList) => {
     try {
       await deletePaymentRequest(projectId, req.id);
@@ -142,19 +131,6 @@ export default function PaymentRequestsPanel({
       </div>
 
       <Space wrap size={[8, 8]} style={{ marginBottom: 12, width: '100%' }}>
-        <RangePicker
-          size="small"
-          value={dateRangeValue}
-          format="DD.MM.YYYY"
-          placeholder={['Дата от', 'Дата до']}
-          onChange={(range) => {
-            updateFilters({
-              dateFrom: range?.[0] ? range[0].format('YYYY-MM-DD') : null,
-              dateTo: range?.[1] ? range[1].format('YYYY-MM-DD') : null,
-            });
-          }}
-          allowEmpty={[true, true]}
-        />
         <Select
           size="small"
           style={{ minWidth: 140 }}
