@@ -7,20 +7,17 @@ set -euo pipefail
 : "${REPLICATOR_PASSWORD:?REPLICATOR_PASSWORD не задан}"
 STANDBY_CIDR="${STANDBY_WG_IP:-10.8.0.2}/32"
 
-# Роль репликации (идемпотентно).
+# Роль репликации (идемпотентно). Пароль подставляет bash (не psql :'var' —
+# ненадёжно внутри dollar-quoted DO-блоков в некоторых версиях/окружениях psql).
 psql -v ON_ERROR_STOP=1 \
-    --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-    -v repl_pass="$REPLICATOR_PASSWORD" <<-'SQL'
-	DO $$
-	BEGIN
-	    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
-	        EXECUTE format(
-	            'CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD %L',
-	            :'repl_pass'
-	        );
-	    END IF;
-	END
-	$$;
+    --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<SQL
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
+        CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD '${REPLICATOR_PASSWORD}';
+    END IF;
+END
+\$\$;
 SQL
 
 # Разрешаем подключение репликации только со standby (через WireGuard-туннель).
