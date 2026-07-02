@@ -17,18 +17,31 @@ build/
 venv/
 .venv/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # ─── Node ─────────────────────────────────────────────────────────────────────
 node_modules/
 frontend/dist/
 frontend/.vite/
 
-# ─── IDE ──────────────────────────────────────────────────────────────────────
+# ─── IDE / AI-инструменты ──────────────────────────────────────────────────────
 .idea/
 .vscode/
 .cursor/
+.cursorrules
+.windsurf/
+.continue/
+.aider*
+.roo/
+.cline/
 *.swp
 *.swo
+
+# ─── Личные заметки / Obsidian (не относится к проекту) ────────────────────────
+.obsidian/
+/knowledge/
 
 # ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
