@@ -1,3 +1,4 @@
-# Ежедневный бэкап БД в 23:59 Europe/Moscow.
-# Sidecar дёргает backend, который делает pg_dump и заливает в S3.
-59 23 * * * /usr/local/bin/run-backup.sh >> /var/log/backup.log 2>&1
+# Почасовой тихий бэкап БД (без отправки файла в Telegram). RPO ~1 час.
+17 * * * * /usr/local/bin/run-backup.sh silent >> /var/log/backup.log 2>&1
+# Ежедневный бэкап с отправкой файла в Telegram (третья независимая копия).
+57 23 * * * /usr/local/bin/run-backup.sh >> /var/log/backup.log 2>&1

@@ -49,12 +49,23 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
-    # S3-compatible storage
+    # S3-compatible storage (PRIMARY — основной таргет, напр. Hostkey)
     s3_endpoint_url: str = ""
     s3_access_key_id: str = ""
     s3_secret_access_key: str = ""
     s3_bucket_name: str = "project-manager"
     s3_region: str = "nl"  # Hostkey NL endpoint ожидает регион nl (см. их AWS CLI-документацию)
+
+    # S3 SECONDARY — второй таргет для dual-write (напр. Storj). Если пусто — dual-write выключен,
+    # работает только PRIMARY. Все файлы и дампы пишутся сразу в оба таргета (см. storage_service).
+    s3_secondary_endpoint_url: str = ""
+    s3_secondary_access_key_id: str = ""
+    s3_secondary_secret_access_key: str = ""
+    s3_secondary_bucket: str = ""  # если пусто — используется s3_bucket_name
+    s3_secondary_region: str = "us-1"  # Storj gateway игнорирует, но boto3 требует непустой
+
+    # Роль узла в схеме active-passive: primary принимает записи, standby — реплика (read-only).
+    node_role: str = "primary"
 
     # Frontend
     frontend_url: str = "http://localhost:5173"

@@ -108,79 +108,123 @@ async def _run_pg_dump(db: dict[str, str]) -> bytes:
     return stdout
 
 
-def _s3_session():
-    import aioboto3
+def _backup_targets() -> list:
+    """
+    Таргеты для дампов БД (dual-write). Дамп заливается в КАЖДЫЙ.
+      1. 'storj'  — выделенный backup-бакет (BACKUP_S3_*, напр. Storj) — канонический.
+      2. 'main'   — основной S3 (S3_*, напр. Hostkey), дампы под тем же префиксом
+                    в основном бакете. Вторая физическая копия у другого провайдера.
+    Дубли (одинаковый endpoint+bucket) отсекаются.
+    """
+    from app.services.storage_service import S3Target
 
+    targets: list[S3Target] = []
     c = _backup_creds()
-    return aioboto3.Session(
-        aws_access_key_id=c["access_key_id"],
-        aws_secret_access_key=c["secret_access_key"],
-        region_name=c["region"],
-    )
+    if c["endpoint_url"] and c["access_key_id"] and c["secret_access_key"] and settings.backup_s3_bucket:
+        targets.append(
+            S3Target(
+                name="storj",
+                endpoint_url=c["endpoint_url"],
+                access_key_id=c["access_key_id"],
+                secret_access_key=c["secret_access_key"],
+                region=c["region"] or "us-1",
+                bucket=settings.backup_s3_bucket,
+            )
+        )
 
+    if (
+        settings.s3_endpoint_url
+        and settings.s3_access_key_id
+        and settings.s3_secret_access_key
+        and settings.s3_bucket_name
+    ):
+        dup = any(
+            t.endpoint_url == settings.s3_endpoint_url and t.bucket == settings.s3_bucket_name
+            for t in targets
+        )
+        if not dup:
+            targets.append(
+                S3Target(
+                    name="main",
+                    endpoint_url=settings.s3_endpoint_url,
+                    access_key_id=settings.s3_access_key_id,
+                    secret_access_key=settings.s3_secret_access_key,
+                    region=settings.s3_region,
+                    bucket=settings.s3_bucket_name,
+                )
+            )
 
-def _s3_client_kwargs():
-    from botocore.config import Config as BotocoreConfig
-
-    return {
-        "endpoint_url": _backup_creds()["endpoint_url"],
-        "config": BotocoreConfig(
-            signature_version="s3v4",
-            s3={"addressing_style": "path"},
-            connect_timeout=10,
-            read_timeout=300,
-            retries={"max_attempts": 2},
-        ),
-    }
+    return targets
 
 
 async def _upload(key: str, body: bytes) -> None:
-    session = _s3_session()
-    async with session.client("s3", **_s3_client_kwargs()) as s3:
-        await s3.put_object(
-            Bucket=settings.backup_s3_bucket,
-            Key=key,
-            Body=body,
-            ContentType="application/octet-stream",
-        )
+    """Заливает дамп во ВСЕ backup-таргеты. Успех, если хотя бы один принял."""
+    from app.services import storage_service
+
+    targets = _backup_targets()
+    if not targets:
+        raise BackupExecutionError("Нет настроенных backup-таргетов для загрузки дампа")
+
+    async def _one(t):
+        async with storage_service.client(t, read_timeout=300) as s3:
+            await s3.put_object(
+                Bucket=t.bucket,
+                Key=key,
+                Body=body,
+                ContentType="application/octet-stream",
+            )
+
+    results = await asyncio.gather(*[_one(t) for t in targets], return_exceptions=True)
+    ok = 0
+    for t, r in zip(targets, results):
+        if isinstance(r, Exception):
+            logger.error("Загрузка дампа в таргет '%s' не удалась: %s", t.name, r)
+        else:
+            ok += 1
+    if ok == 0:
+        raise BackupExecutionError("Не удалось залить дамп ни в один backup-таргет")
 
 
 async def _apply_retention() -> int:
-    """Удаляет дампы старше backup_retention_days. Возвращает число удалённых."""
+    """Удаляет дампы старше backup_retention_days во ВСЕХ таргетах. Возвращает число удалённых."""
     if settings.backup_retention_days <= 0:
         return 0
+    from app.services import storage_service
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.backup_retention_days)
     prefix = settings.backup_s3_prefix
     if not prefix.endswith("/"):
         prefix += "/"
 
-    session = _s3_session()
     deleted = 0
-    async with session.client("s3", **_s3_client_kwargs()) as s3:
-        continuation: str | None = None
-        while True:
-            kwargs = {"Bucket": settings.backup_s3_bucket, "Prefix": prefix}
-            if continuation:
-                kwargs["ContinuationToken"] = continuation
-            resp = await s3.list_objects_v2(**kwargs)
-            old_keys = [
-                {"Key": obj["Key"]}
-                for obj in resp.get("Contents", [])
-                if obj.get("LastModified") and obj["LastModified"] < cutoff
-            ]
-            if old_keys:
-                # delete_objects поддерживает до 1000 ключей за вызов
-                for i in range(0, len(old_keys), 1000):
-                    chunk = old_keys[i : i + 1000]
-                    await s3.delete_objects(
-                        Bucket=settings.backup_s3_bucket,
-                        Delete={"Objects": chunk, "Quiet": True},
-                    )
-                    deleted += len(chunk)
-            if not resp.get("IsTruncated"):
-                break
-            continuation = resp.get("NextContinuationToken")
+    for target in _backup_targets():
+        try:
+            async with storage_service.client(target, read_timeout=60) as s3:
+                continuation: str | None = None
+                while True:
+                    kwargs = {"Bucket": target.bucket, "Prefix": prefix}
+                    if continuation:
+                        kwargs["ContinuationToken"] = continuation
+                    resp = await s3.list_objects_v2(**kwargs)
+                    old_keys = [
+                        {"Key": obj["Key"]}
+                        for obj in resp.get("Contents", [])
+                        if obj.get("LastModified") and obj["LastModified"] < cutoff
+                    ]
+                    if old_keys:
+                        # delete_objects поддерживает до 1000 ключей за вызов
+                        for i in range(0, len(old_keys), 1000):
+                            chunk = old_keys[i : i + 1000]
+                            await s3.delete_objects(
+                                Bucket=target.bucket,
+                                Delete={"Objects": chunk, "Quiet": True},
+                            )
+                            deleted += len(chunk)
+                    if not resp.get("IsTruncated"):
+                        break
+                    continuation = resp.get("NextContinuationToken")
+        except Exception:
+            logger.exception("Retention для таргета '%s' не выполнен", target.name)
     return deleted
 
 
@@ -188,32 +232,39 @@ async def list_backups(limit: int = 100) -> list[dict]:
     """Список бэкапов в бакете (последние сверху). Только метаданные."""
     if not _is_backup_configured():
         return []
+    from app.services import storage_service
+
     prefix = settings.backup_s3_prefix
     if not prefix.endswith("/"):
         prefix += "/"
 
-    session = _s3_session()
-    items: list[dict] = []
-    async with session.client("s3", **_s3_client_kwargs()) as s3:
-        continuation: str | None = None
-        while True:
-            kwargs = {"Bucket": settings.backup_s3_bucket, "Prefix": prefix}
-            if continuation:
-                kwargs["ContinuationToken"] = continuation
-            resp = await s3.list_objects_v2(**kwargs)
-            for obj in resp.get("Contents", []):
-                items.append({
-                    "key": obj["Key"],
-                    "size_bytes": int(obj.get("Size") or 0),
-                    "last_modified": obj["LastModified"].isoformat()
-                    if obj.get("LastModified") else None,
-                })
-            if not resp.get("IsTruncated"):
-                break
-            continuation = resp.get("NextContinuationToken")
-
-    items.sort(key=lambda x: x["last_modified"] or "", reverse=True)
-    return items[:limit]
+    # Ключи одинаковы во всех таргетах — листим с первого доступного (fallback по таргетам).
+    for target in _backup_targets():
+        try:
+            items: list[dict] = []
+            async with storage_service.client(target, read_timeout=60) as s3:
+                continuation: str | None = None
+                while True:
+                    kwargs = {"Bucket": target.bucket, "Prefix": prefix}
+                    if continuation:
+                        kwargs["ContinuationToken"] = continuation
+                    resp = await s3.list_objects_v2(**kwargs)
+                    for obj in resp.get("Contents", []):
+                        items.append({
+                            "key": obj["Key"],
+                            "size_bytes": int(obj.get("Size") or 0),
+                            "last_modified": obj["LastModified"].isoformat()
+                            if obj.get("LastModified") else None,
+                        })
+                    if not resp.get("IsTruncated"):
+                        break
+                    continuation = resp.get("NextContinuationToken")
+            items.sort(key=lambda x: x["last_modified"] or "", reverse=True)
+            return items[:limit]
+        except Exception:
+            logger.warning("Не удалось получить список бэкапов из таргета '%s'", target.name)
+            continue
+    return []
 
 
 async def _send_backup_to_telegram(dump_bytes: bytes, key: str) -> None:
@@ -255,10 +306,13 @@ async def _send_backup_to_telegram(dump_bytes: bytes, key: str) -> None:
         logger.exception("Не удалось отправить бэкап в Telegram")
 
 
-async def run_backup() -> dict:
+async def run_backup(notify: bool = True) -> dict:
     """
     Делает дамп БД и кладёт в S3. Возвращает метаданные.
     Бросает BackupConfigError / BackupExecutionError при проблемах.
+
+    notify=False — не отправлять файл в Telegram (для почасовых тихих бэкапов,
+    чтобы не заспамить чат; ежедневный запуск шлёт как раньше).
     """
     if not _is_backup_configured():
         raise BackupConfigError(
@@ -282,7 +336,8 @@ async def run_backup() -> dict:
     except Exception:
         logger.exception("Ошибка retention (бэкап создан, но старые не удалены)")
 
-    await _send_backup_to_telegram(dump_bytes, key)
+    if notify:
+        await _send_backup_to_telegram(dump_bytes, key)
 
     finished = datetime.now(timezone.utc)
     return {
@@ -304,20 +359,42 @@ def _normalized_prefix() -> str:
 
 
 async def _download_dump(key: str) -> bytes:
-    """Скачивает объект дампа из backup-бакета. Бросает BackupNotFoundError если нет."""
+    """
+    Скачивает дамп по ключу, перебирая таргеты по очереди (если один провайдер недоступен —
+    берём копию с другого). BackupNotFoundError только если ключа нет НИ В ОДНОМ таргете.
+    """
     from botocore.exceptions import ClientError
 
-    session = _s3_session()
-    async with session.client("s3", **_s3_client_kwargs()) as s3:
+    from app.services import storage_service
+
+    targets = _backup_targets()
+    last_exec_error: Exception | None = None
+    not_found_everywhere = True
+
+    for target in targets:
         try:
-            resp = await s3.get_object(Bucket=settings.backup_s3_bucket, Key=key)
+            async with storage_service.client(target, read_timeout=300) as s3:
+                resp = await s3.get_object(Bucket=target.bucket, Key=key)
+                async with resp["Body"] as stream:
+                    return await stream.read()
         except ClientError as e:
             code = e.response.get("Error", {}).get("Code", "")
             if code in ("NoSuchKey", "404", "NoSuchBucket"):
-                raise BackupNotFoundError(f"Бэкап не найден: {key}") from e
-            raise BackupExecutionError(f"Ошибка S3 при скачивании: {e}") from e
-        async with resp["Body"] as stream:
-            return await stream.read()
+                logger.info("Дамп %s не найден в таргете '%s', пробуем следующий", key, target.name)
+                continue
+            not_found_everywhere = False
+            last_exec_error = e
+            logger.warning("Ошибка S3 при скачивании из '%s': %s", target.name, e)
+            continue
+        except Exception as e:  # noqa: BLE001
+            not_found_everywhere = False
+            last_exec_error = e
+            logger.warning("Ошибка при скачивании из '%s': %s", target.name, e)
+            continue
+
+    if not_found_everywhere:
+        raise BackupNotFoundError(f"Бэкап не найден: {key}")
+    raise BackupExecutionError(f"Ошибка S3 при скачивании дампа: {last_exec_error}")
 
 
 async def _reset_schema() -> None:

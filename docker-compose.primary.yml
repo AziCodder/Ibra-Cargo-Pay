@@ -1,0 +1,39 @@
+# Оверлей PRIMARY (сервер 1): PostgreSQL как источник потоковой репликации.
+# Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.primary.yml up -d
+# На VPS добавляйте ещё -f docker-compose.vps.yml.
+#
+# Требуемые env (в .env):
+#   REPLICATOR_PASSWORD — пароль роли replicator (задать!)
+#   STANDBY_WG_IP       — WireGuard-IP сервера 2 (по умолч. 10.8.0.2)
+#   PG_REPL_BIND        — на каком интерфейсе слушать репликацию (по умолч. 10.8.0.1 — WG)
+
+services:
+  db:
+    # WAL-настройки для потоковой репликации. Слоты не дают primary удалить WAL,
+    # пока standby его не забрал (надёжнее, чем wal_keep_size в одиночку).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - hot_standby=on
+      - -c
+      - wal_keep_size=512MB
+      # wal_log_hints обязателен для pg_rewind (возврат старого primary в реплику при failback).
+      - -c
+      - wal_log_hints=on
+      - -c
+      - listen_addresses=*
+    environment:
+      REPLICATOR_PASSWORD: ${REPLICATOR_PASSWORD:-change-me-replicator}
+      STANDBY_WG_IP: ${STANDBY_WG_IP:-10.8.0.2}
+    volumes:
+      - ./postgres/primary/init-replication.sh:/docker-entrypoint-initdb.d/20-init-replication.sh:ro
+    # Порт репликации виден ТОЛЬКО в WireGuard-туннеле (bind на приватный IP).
+    ports:
+      - "${PG_REPL_BIND:-10.8.0.1}:5432:5432"

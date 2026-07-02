@@ -1,6 +1,8 @@
 # ─── Environment ─────────────────────────────────────────────────────────────
 .env
 .env.vps
+.env.bak*
+env.fixed.txt
 *.local
 
 # ─── Graphify knowledge graph (local cache) ──────────────────────────────────

@@ -11,6 +11,7 @@ from app.models.project_item_order import ProjectItemOrder
 from app.models.project_item_requirement import ProjectItemRequirement
 from app.models.project_note import ProjectNote
 from app.models.project_order import ProjectOrder
+from app.models.storage_replication_pending import StorageReplicationPending
 from app.models.supplier import Supplier
 from app.models.user import User
 
@@ -30,4 +31,5 @@ __all__ = [
     "PaymentRequestComment",
     "Payment",
     "AuditLog",
+    "StorageReplicationPending",
 ]

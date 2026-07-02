@@ -1,0 +1,29 @@
+# Оверлей STANDBY (сервер 2): PostgreSQL как hot standby (read-only реплика primary).
+# Запуск на сервере 2:
+#   docker compose -f docker-compose.yml -f docker-compose.replica.yml up -d
+#
+# ВАЖНО: primary (сервер 1) должен быть уже поднят с docker-compose.primary.yml,
+# WireGuard-туннель активен, роль replicator создана. Пустой том db → авто-basebackup.
+#
+# Требуемые env (в .env сервера 2):
+#   PRIMARY_WG_IP        — WireGuard-IP сервера 1 (по умолч. 10.8.0.1)
+#   REPLICATOR_PASSWORD  — пароль роли replicator (тот же, что на primary)
+#   REPLICATION_SLOT     — имя слота (по умолч. standby_slot)
+#   NODE_ROLE=standby    — приложение знает, что оно в резерве
+
+services:
+  db:
+    # Свой entrypoint: basebackup + standby.signal, затем штатный запуск PG.
+    entrypoint: ["bash", "/usr/local/bin/setup-replica.sh"]
+    command: []
+    environment:
+      PRIMARY_WG_IP: ${PRIMARY_WG_IP:-10.8.0.1}
+      REPLICATOR_PASSWORD: ${REPLICATOR_PASSWORD:-change-me-replicator}
+      REPLICATION_SLOT: ${REPLICATION_SLOT:-standby_slot}
+    volumes:
+      - ./postgres/replica/setup-replica.sh:/usr/local/bin/setup-replica.sh:ro
+
+  backend:
+    environment:
+      # Реплика read-only — приложение на standby знает свою роль.
+      NODE_ROLE: ${NODE_ROLE:-standby}

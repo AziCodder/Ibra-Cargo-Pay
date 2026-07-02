@@ -30,12 +30,16 @@ class RestoreRequest(BaseModel):
 @router.post("/run")
 async def run_backup_from_cron(
     x_backup_secret: str = Header(..., alias="X-Backup-Secret"),
+    notify: bool = Query(True),
 ):
-    """Точка входа для sidecar-контейнера с cron. Авторизация по секрету."""
+    """Точка входа для sidecar-контейнера с cron. Авторизация по секрету.
+
+    notify=false — тихий режим для почасовых бэкапов (без файла в Telegram).
+    """
     if x_backup_secret != settings.backup_trigger_secret:
         raise HTTPException(status_code=403, detail="Неверный секрет бэкапа")
     try:
-        return await backup_service.run_backup()
+        return await backup_service.run_backup(notify=notify)
     except backup_service.BackupConfigError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except backup_service.BackupExecutionError as e:
@@ -105,28 +109,19 @@ async def get_backup_download_url(
     if not key.startswith(prefix):
         raise HTTPException(status_code=400, detail="Недопустимый ключ")
 
-    import aioboto3
-    from botocore.config import Config as BotocoreConfig
+    from app.services import storage_service
 
-    creds = backup_service._backup_creds()
-    session = aioboto3.Session(
-        aws_access_key_id=creds["access_key_id"],
-        aws_secret_access_key=creds["secret_access_key"],
-        region_name=creds["region"],
-    )
-    cfg = BotocoreConfig(
-        signature_version="s3v4",
-        s3={"addressing_style": "path"},
-        connect_timeout=5,
-        read_timeout=10,
-        retries={"max_attempts": 1},
-    )
-    async with session.client(
-        "s3", endpoint_url=creds["endpoint_url"], config=cfg
-    ) as s3:
-        url = await s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": settings.backup_s3_bucket, "Key": key},
-            ExpiresIn=3600,
-        )
-    return {"url": url}
+    # Presigned URL с первого доступного backup-таргета (если один провайдер недоступен).
+    for target in backup_service._backup_targets():
+        try:
+            async with storage_service.client(target, read_timeout=10) as s3:
+                url = await s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": target.bucket, "Key": key},
+                    ExpiresIn=3600,
+                )
+            return {"url": url}
+        except Exception:
+            logger.warning("Presigned URL из таргета '%s' не удался", target.name)
+            continue
+    raise HTTPException(status_code=503, detail="Ни один backup-таргет не доступен")

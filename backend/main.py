@@ -19,6 +19,7 @@ from app.api.project_item_requirements import router as requirements_router
 from app.api.project_notes import router as project_notes_router
 from app.api.project_items import router as project_items_router
 from app.api.projects import router as projects_router
+from app.api.storage import router as storage_router
 from app.api.suppliers import router as suppliers_router
 from app.api.users import router as users_router
 from app.core.config import settings
@@ -76,6 +77,7 @@ app.include_router(comments_router)
 app.include_router(audit_router)
 app.include_router(dashboard_router)
 app.include_router(backups_router)
+app.include_router(storage_router)
 
 
 @app.get("/health", tags=["system"])

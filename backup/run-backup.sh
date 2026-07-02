@@ -20,12 +20,18 @@ tg_error() {
         > /dev/null 2>&1 || true
 }
 
-echo "[$(ts)] Запуск бэкапа через ${BACKEND_URL}/api/backups/run"
+# Аргумент "silent" — тихий почасовой бэкап (без отправки файла в Telegram).
+QUERY=""
+if [ "${1:-}" = "silent" ]; then
+    QUERY="?notify=false"
+fi
+
+echo "[$(ts)] Запуск бэкапа через ${BACKEND_URL}/api/backups/run${QUERY}"
 
 # 30 минут таймаут на сам бэкап (pg_dump + upload + Telegram send)
 http_code=$(curl -sS -o /tmp/backup-resp.json -w "%{http_code}" \
     --max-time 1800 \
-    -X POST "${BACKEND_URL}/api/backups/run" \
+    -X POST "${BACKEND_URL}/api/backups/run${QUERY}" \
     -H "X-Backup-Secret: ${BACKUP_TRIGGER_SECRET}" \
     -H "Content-Type: application/json" \
     || echo "000")

@@ -1,0 +1,3 @@
+# Страховочная синхронизация S3 каждые 15 минут:
+# rclone copy primary→secondary (без удалений) + догон outbox через backend.
+*/15 * * * * /usr/local/bin/bisync.sh >> /var/log/reconcile.log 2>&1
