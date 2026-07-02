@@ -46,15 +46,15 @@ ALTER SYSTEM SET wal_log_hints = on;
 SQL
 
 log "2/5 Создаю роль replicator (если нет)"
-psql_exec -v repl_pass="$REPLICATOR_PASSWORD" <<'SQL'
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicator') THEN
-        EXECUTE format('CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD %L', :'repl_pass');
-    END IF;
-END
-$$;
-SQL
+# ВАЖНО: psql НЕ подставляет :'var' внутри $$...$$ (dollar-quoted блок) — поэтому
+# роль создаём простым CREATE ROLE через -c, без DO-блока и dollar-quoting.
+role_exists="$(psql_exec -tA -c "SELECT 1 FROM pg_roles WHERE rolname='replicator';" | tr -d '[:space:]')"
+if [ "$role_exists" = "1" ]; then
+    log "роль replicator уже существует — пропускаю"
+else
+    psql_exec -v repl_pass="$REPLICATOR_PASSWORD" \
+        -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD :'repl_pass';"
+fi
 
 log "3/5 Разрешаю репликацию со standby ${STANDBY_WG_IP} в pg_hba.conf"
 HBA_LINE="host replication replicator ${STANDBY_WG_IP}/32 scram-sha-256"
