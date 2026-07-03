@@ -66,6 +66,9 @@ class Settings(BaseSettings):
 
     # Роль узла в схеме active-passive: primary принимает записи, standby — реплика (read-only).
     node_role: str = "primary"
+    # WireGuard-IP серверов — для проверки доступности второго сервера в /api/system/status.
+    primary_wg_ip: str = ""
+    standby_wg_ip: str = ""
 
     # Frontend
     frontend_url: str = "http://localhost:5173"

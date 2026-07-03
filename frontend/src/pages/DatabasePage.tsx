@@ -4,6 +4,7 @@ import UsersTab from '../components/Database/UsersTab';
 import SuppliersTab from '../components/Database/SuppliersTab';
 import AuditLogTab from '../components/Database/AuditLogTab';
 import BackupsTab from '../components/Database/BackupsTab';
+import SystemStatusTab from '../components/Database/SystemStatusTab';
 
 export default function DatabasePage() {
   const navigate = useNavigate();
@@ -15,7 +16,9 @@ export default function DatabasePage() {
       ? 'audit'
       : location.pathname.includes('backups')
         ? 'backups'
-        : 'users';
+        : location.pathname.includes('status')
+          ? 'status'
+          : 'users';
 
   return (
     <div style={{ padding: '24px' }}>
@@ -28,6 +31,7 @@ export default function DatabasePage() {
           { key: 'suppliers', label: 'Поставщики', children: <SuppliersTab /> },
           { key: 'audit', label: 'Журнал изменений', children: <AuditLogTab /> },
           { key: 'backups', label: 'Бэкапы', children: <BackupsTab /> },
+          { key: 'status', label: 'Состояние системы', children: <SystemStatusTab /> },
         ]}
       />
     </div>

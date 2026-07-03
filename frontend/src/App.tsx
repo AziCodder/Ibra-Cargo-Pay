@@ -54,6 +54,7 @@ function ThemedApp() {
                     <Route path="/database/suppliers" element={<DatabasePage />} />
                     <Route path="/database/audit" element={<DatabasePage />} />
                     <Route path="/database/backups" element={<DatabasePage />} />
+                    <Route path="/database/status" element={<DatabasePage />} />
                   </Route>
 
                   {/* Проекты — для всех авторизованных */}
