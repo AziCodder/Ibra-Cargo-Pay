@@ -274,7 +274,7 @@ export default function ItemsPanel({
       width: 140,
       align: 'right' as const,
       render: (_: unknown, record: ProjectItem) => {
-        const total = parseFloat(record.price) * parseFloat(record.quantity);
+        const total = Math.round(parseFloat(record.price) * parseFloat(record.quantity) * 100) / 100;
         return (
           <Text style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
             {fmtNum(total)} {record.currency}
@@ -316,9 +316,9 @@ export default function ItemsPanel({
       width: 140,
       align: 'right' as const,
       render: (_: unknown, record: ProjectItem) => {
-        const total = parseFloat(record.price) * parseFloat(record.quantity);
+        const total = Math.round(parseFloat(record.price) * parseFloat(record.quantity) * 100) / 100;
         const paid = parseFloat(record.paid_amount ?? '0');
-        const remaining = total - paid;
+        const remaining = Math.round((total - paid) * 100) / 100;
         return (
           <Text
             style={{ fontSize: 12, whiteSpace: 'nowrap' }}

@@ -1,4 +1,4 @@
-﻿# Детальный план: чек-лист правок Ibra Cargo Pay
+# Детальный план: чек-лист правок Ibra Cargo Pay
 
 > Источник: https://telegra.ph/CHek-list-pravok-06-26  
 > Базовая точка: коммит `4ccfd2b`  

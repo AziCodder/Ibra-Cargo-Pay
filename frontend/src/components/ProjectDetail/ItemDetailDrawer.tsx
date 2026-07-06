@@ -98,12 +98,12 @@ export default function ItemDetailDrawer({ open, item, projectId, onClose, onCha
   const commission = parseFloat(item.commission);
   const costPrice = item.cost_price ? parseFloat(item.cost_price) : null;
   const effectivePrice = price * (1 + commission / 100);
-  const totalAmount = price * quantity;
+  const totalAmount = Math.round(price * quantity * 100) / 100;
   const invoicedAmount = parseFloat(item.invoiced_amount ?? '0');
   const paidAmount = parseFloat(item.paid_amount ?? '0');
-  const invoicedRemaining = invoicedAmount - paidAmount;      // выставлено, но не оплачено
-  const notInvoiced = totalAmount - invoicedAmount;           // ещё не выставлено
-  const totalRemaining = totalAmount - paidAmount;            // общий остаток
+  const invoicedRemaining = Math.round((invoicedAmount - paidAmount) * 100) / 100;
+  const notInvoiced = Math.round((totalAmount - invoicedAmount) * 100) / 100;
+  const totalRemaining = Math.round((totalAmount - paidAmount) * 100) / 100;
   const commissionAmount = price * quantity * (commission / 100);
 
   return (

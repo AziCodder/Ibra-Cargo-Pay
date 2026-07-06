@@ -71,12 +71,13 @@ export default function PaymentRequestFormModal({
         const price = parseFloat(item.price);
         const qty = parseFloat(item.quantity);
         const invoiced = parseFloat(item.invoiced_amount ?? '0');
+        const raw = price * qty - invoiced;
         return {
           project_item_id: item.id,
           name: item.name,
           currency: item.currency,
           amount: null,
-          max_amount: Math.max(0, price * qty - invoiced),
+          max_amount: Math.max(0, Math.round(raw * 100) / 100),
         };
       }),
     [items],
